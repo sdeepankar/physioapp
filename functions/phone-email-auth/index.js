@@ -25,6 +25,7 @@ module.exports = async ({ req, res, error }) => {
   if (req.method !== 'POST') return json(res, 405, { error: 'Use POST.' });
 
   const accessToken = req.bodyJson?.accessToken;
+  const mode = req.bodyJson?.mode;
   const submittedFirstName = String(req.bodyJson?.firstName || '').trim().slice(0, 60);
   const submittedLastName = String(req.bodyJson?.lastName || '').trim().slice(0, 60);
   const submittedName = [submittedFirstName, submittedLastName].filter(Boolean).join(' ').slice(0, 120);
@@ -33,9 +34,16 @@ module.exports = async ({ req, res, error }) => {
   const projectId = process.env.APPWRITE_FUNCTION_PROJECT_ID;
   const functionApiKey = req.headers?.['x-appwrite-key'];
 
+  if (mode !== 'login' && mode !== 'register') {
+    return json(res, 400, { error: 'Choose login or account registration.' });
+  }
   if (typeof accessToken !== 'string' || accessToken.length < 10 ||
-      !submittedFirstName || !submittedLastName) {
-    return json(res, 400, { error: 'Enter your first and last name, then complete phone verification.' });
+      (mode === 'register' && (!submittedFirstName || !submittedLastName))) {
+    return json(res, 400, {
+      error: mode === 'register'
+        ? 'Enter your first and last name, then complete phone verification.'
+        : 'Complete phone verification to log in.',
+    });
   }
   if (!phoneEmailClientId || !endpoint || !projectId || !functionApiKey) {
     error('Phone.Email or Appwrite Function configuration is incomplete.');
@@ -65,43 +73,74 @@ module.exports = async ({ req, res, error }) => {
     const providerLastName = String(providerUser.user_last_name || '').trim().slice(0, 60);
     let firstName = submittedFirstName || providerFirstName;
     let lastName = submittedLastName || providerLastName;
-    const providerName = [providerFirstName, providerLastName].filter(Boolean).join(' ').slice(0, 120);
     if (!verifiedPhone) {
       return json(res, 401, { error: 'Deep Care currently supports verified Indian mobile numbers.' });
     }
     // A deterministic internal ID allows repeat registration to sign in to
     // the same phone account without exposing a phone lookup endpoint.
     const userId = 'phone_' + verifiedPhone.replace(/\D/g, '');
-    let profileName = submittedName || providerName || 'Deep Care User';
-    const createUser = await appwriteRequest(endpoint, projectId, functionApiKey, '/users', 'POST', {
-      userId,
-      phone: verifiedPhone,
-      name: profileName,
-    });
-    if (!createUser.response.ok && createUser.response.status !== 409) {
-      const appwriteType = String(createUser.payload?.type || 'unknown');
-      const appwriteMessage = String(createUser.payload?.message || 'No Appwrite message');
-      error('Appwrite user creation failed (' + createUser.response.status + ', ' + appwriteType + '): ' + appwriteMessage);
-      return json(res, 502, { error: 'Could not create your account. Please try again.' });
+    const userPath = `/users/${encodeURIComponent(userId)}`;
+    const lookup = await appwriteRequest(
+      endpoint, projectId, functionApiKey, userPath, 'GET',
+    );
+    let existingUser = null;
+    if (lookup.response.ok) {
+      existingUser = lookup.payload;
+    } else if (lookup.response.status !== 404) {
+      error(`Appwrite user lookup failed (${lookup.response.status}, ${lookup.payload?.type || 'unknown'}).`);
+      return json(res, 502, { error: 'Could not check your Deep Care account. Please try again.' });
     }
-    if (createUser.response.status === 409) {
-      const existing = await appwriteRequest(
-        endpoint, projectId, functionApiKey, `/users/${encodeURIComponent(userId)}`, 'GET',
-      );
-      if (!existing.response.ok || existing.payload.phone !== verifiedPhone || existing.payload.status === false) {
+
+    let profileName;
+    if (mode === 'login') {
+      if (!existingUser) {
+        return json(res, 404, { error: 'No account was found for this phone number. Choose Create account first.' });
+      }
+      if (existingUser.phone !== verifiedPhone || existingUser.status === false) {
         return json(res, 409, { error: 'This phone account cannot be used. Please contact support.' });
       }
-      if (!submittedName && !providerName) {
-        profileName = String(existing.payload.name || profileName).trim().slice(0, 120) || 'Deep Care User';
-        const nameParts = profileName.split(/\s+/);
-        firstName = nameParts.shift() || '';
-        lastName = nameParts.join(' ');
+      profileName = String(existingUser.name || '').trim().slice(0, 120);
+      const nameParts = profileName.split(/\s+/).filter(Boolean);
+      firstName = nameParts.shift() || '';
+      lastName = nameParts.join(' ');
+    } else {
+      profileName = submittedName;
+      if (existingUser) {
+        if (existingUser.phone !== verifiedPhone || existingUser.status === false) {
+          return json(res, 409, { error: 'This phone account cannot be used. Please contact support.' });
+        }
+        // Accounts created by the earlier prototype may have the generic
+        // fallback name. Registration is the point at which the user's
+        // entered name becomes the canonical Appwrite profile name.
+        const updateName = await appwriteRequest(
+          endpoint, projectId, functionApiKey,
+          `${userPath}/name`, 'PATCH', { name: profileName },
+        );
+        if (!updateName.response.ok) {
+          error(`Appwrite profile name update failed (${updateName.response.status}, ${updateName.payload?.type || 'unknown'}).`);
+          return json(res, 502, { error: 'Could not update your profile name. Please try again.' });
+        }
+      } else {
+        const createUser = await appwriteRequest(endpoint, projectId, functionApiKey, '/users', 'POST', {
+          userId,
+          phone: verifiedPhone,
+          name: profileName,
+        });
+        if (createUser.response.status === 409) {
+          return json(res, 409, { error: 'An account already exists for this number. Try logging in instead.' });
+        }
+        if (!createUser.response.ok) {
+          const appwriteType = String(createUser.payload?.type || 'unknown');
+          const appwriteMessage = String(createUser.payload?.message || 'No Appwrite message');
+          error('Appwrite user creation failed (' + createUser.response.status + ', ' + appwriteType + '): ' + appwriteMessage);
+          return json(res, 502, { error: 'Could not create your account. Please try again.' });
+        }
       }
     }
 
     const verification = await appwriteRequest(
       endpoint, projectId, functionApiKey,
-      `/users/${encodeURIComponent(userId)}/verification/phone`, 'PATCH',
+      `${userPath}/verification/phone`, 'PATCH',
       { phoneVerification: true },
     );
     if (!verification.response.ok) {
@@ -111,7 +150,7 @@ module.exports = async ({ req, res, error }) => {
 
     const token = await appwriteRequest(
       endpoint, projectId, functionApiKey,
-      `/users/${encodeURIComponent(userId)}/tokens`, 'POST', {},
+      `${userPath}/tokens`, 'POST', {},
     );
     if (!token.response.ok || typeof token.payload.secret !== 'string') {
       error(`Appwrite custom token creation failed (${token.response.status}).`);

@@ -32,14 +32,16 @@ class PhoneOtpService {
   static Future<
     ({String name, String firstName, String lastName, String phone})
   >
-  registerWithVerifiedPhone({
+  authenticateWithVerifiedPhone({
     required String accessToken,
+    required String mode,
     required String firstName,
     required String lastName,
   }) async {
     try {
-      return await AppwriteAuthService.instance.registerWithPhoneEmail(
+      return await AppwriteAuthService.instance.authenticateWithPhoneEmail(
         accessToken: accessToken,
+        mode: mode,
         firstName: firstName,
         lastName: lastName,
       );

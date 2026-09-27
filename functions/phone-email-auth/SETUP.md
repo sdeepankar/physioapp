@@ -1,11 +1,18 @@
 # Phone.Email OTP to Appwrite
 
-The Flutter sign-in opens Phone.Email directly. The user enters first and last name in Deep Care, then Phone.Email collects
-and verifies the phone number. After verification, this function validates the
-SDK access token with Phone.Email and creates or reuses the matching Appwrite
-account using the submitted name and verified number. The verified first name, last name, profile name,
-and phone are returned to Flutter and saved locally. If Phone.Email does not return a name, the function uses
-Deep Care User as a fallback.
+Deep Care provides separate Log in and Create account choices. Both use the
+Phone.Email Flutter SDK to collect and verify the phone number. Registration
+also asks for first and last name in Deep Care. The Appwrite Function validates
+the SDK access token with Phone.Email, then either finds the existing phone
+account (log in) or creates a new one (registration). Registration writes the
+entered first and last name to Appwrite, including replacing the generic name
+on accounts created by the earlier prototype. It returns that same name and
+the verified phone to Flutter. The app persists the profile locally after the
+user confirms the details.
+
+Logging in with a phone that has no account asks the user to create an account.
+Registering a phone that already has an account updates its name and continues
+the sign-in flow, so previously created placeholder-name accounts are repaired.
 
 ## Configure in Appwrite
 
@@ -16,7 +23,7 @@ Deep Care User as a fallback.
 3. Under the Function Settings Scopes, enable users.write and users.read for
    its ephemeral Function API key. users.write is required to create users,
    mark phone verification, and create custom tokens. users.read is required
-   when checking an existing account at repeat sign-in.
+   when checking an existing account at sign-in and registration.
 4. Add this Function variable:
    - PHONE_EMAIL_CLIENT_ID: the client ID from the Phone.Email dashboard.
 5. Deploy the function and confirm its ID matches phoneEmailAuthFunctionId in

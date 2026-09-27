@@ -32,11 +32,17 @@ class AppwriteAuthService {
   }
 
   Future<({String name, String firstName, String lastName, String phone})>
-  registerWithPhoneEmail({
+  authenticateWithPhoneEmail({
     required String accessToken,
+    required String mode,
     required String firstName,
     required String lastName,
   }) async {
+    if (mode != 'login' && mode != 'register') {
+      throw const AppwriteAuthException(
+        'Choose login or account registration.',
+      );
+    }
     if (accessToken.isEmpty) {
       throw const AppwriteAuthException(
         'Phone verification returned no token.',
@@ -49,6 +55,7 @@ class AppwriteAuthService {
         functionId: phoneEmailAuthFunctionId,
         body: jsonEncode({
           'accessToken': accessToken,
+          'mode': mode,
           'firstName': firstName.trim(),
           'lastName': lastName.trim(),
         }),

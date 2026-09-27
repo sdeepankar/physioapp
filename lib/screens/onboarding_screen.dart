@@ -79,6 +79,7 @@ class PhoneEmailLoginPage extends StatefulWidget {
 }
 
 class _PhoneEmailLoginPageState extends State<PhoneEmailLoginPage> {
+  PhoneEmailAuthMode _authMode = PhoneEmailAuthMode.signIn;
   final _formKey = GlobalKey<FormState>();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
@@ -129,8 +130,10 @@ class _PhoneEmailLoginPageState extends State<PhoneEmailLoginPage> {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  const Text(
-                    'Sign in to Deep Care',
+                  Text(
+                    _authMode == PhoneEmailAuthMode.register
+                        ? 'Create your Deep Care account'
+                        : 'Welcome back',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: appInk,
@@ -139,44 +142,72 @@ class _PhoneEmailLoginPageState extends State<PhoneEmailLoginPage> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  const Text(
-                    'Phone.Email securely verifies your phone. You only enter your number on their verification screen.',
+                  Text(
+                    _authMode == PhoneEmailAuthMode.register
+                        ? 'Create your profile, then verify your phone securely with Phone.Email.'
+                        : 'Sign in securely with your phone using Phone.Email.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: appMuted, height: 1.5),
                   ),
                   if (profile == null) ...[
                     const SizedBox(height: 22),
-                    Form(
-                      key: _formKey,
-                      child: Column(
-                        children: [
-                          TextFormField(
-                            controller: _firstNameController,
-                            textCapitalization: TextCapitalization.words,
-                            textInputAction: TextInputAction.next,
-                            autofillHints: const [AutofillHints.givenName],
-                            decoration: _nameDecoration('First name'),
-                            validator: (value) =>
-                                value == null || value.trim().isEmpty
-                                ? 'Enter your first name'
-                                : null,
-                          ),
-                          const SizedBox(height: 14),
-                          TextFormField(
-                            controller: _lastNameController,
-                            textCapitalization: TextCapitalization.words,
-                            textInputAction: TextInputAction.done,
-                            autofillHints: const [AutofillHints.familyName],
-                            decoration: _nameDecoration('Last name'),
-                            validator: (value) =>
-                                value == null || value.trim().isEmpty
-                                ? 'Enter your last name'
-                                : null,
-                            onFieldSubmitted: (_) => _continueWithPhoneEmail(),
-                          ),
-                        ],
-                      ),
+                    SegmentedButton<PhoneEmailAuthMode>(
+                      segments: const [
+                        ButtonSegment(
+                          value: PhoneEmailAuthMode.signIn,
+                          label: Text('Log in'),
+                          icon: Icon(Icons.login_rounded),
+                        ),
+                        ButtonSegment(
+                          value: PhoneEmailAuthMode.register,
+                          label: Text('Create account'),
+                          icon: Icon(Icons.person_add_alt_1_rounded),
+                        ),
+                      ],
+                      selected: {_authMode},
+                      onSelectionChanged: (selection) {
+                        setState(() {
+                          _authMode = selection.first;
+                          _phoneAuthError = null;
+                        });
+                      },
+                      showSelectedIcon: false,
                     ),
+                    if (_authMode == PhoneEmailAuthMode.register) ...[
+                      const SizedBox(height: 18),
+                      Form(
+                        key: _formKey,
+                        child: Column(
+                          children: [
+                            TextFormField(
+                              controller: _firstNameController,
+                              textCapitalization: TextCapitalization.words,
+                              textInputAction: TextInputAction.next,
+                              autofillHints: const [AutofillHints.givenName],
+                              decoration: _nameDecoration('First name'),
+                              validator: (value) =>
+                                  value == null || value.trim().isEmpty
+                                  ? 'Enter your first name'
+                                  : null,
+                            ),
+                            const SizedBox(height: 14),
+                            TextFormField(
+                              controller: _lastNameController,
+                              textCapitalization: TextCapitalization.words,
+                              textInputAction: TextInputAction.done,
+                              autofillHints: const [AutofillHints.familyName],
+                              decoration: _nameDecoration('Last name'),
+                              validator: (value) =>
+                                  value == null || value.trim().isEmpty
+                                  ? 'Enter your last name'
+                                  : null,
+                              onFieldSubmitted: (_) =>
+                                  _continueWithPhoneEmail(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                   if (_isInitializingPhoneAuth ||
                       _isVerifyingPhone ||
@@ -191,7 +222,11 @@ class _PhoneEmailLoginPageState extends State<PhoneEmailLoginPage> {
                           ? null
                           : _continueWithPhoneEmail,
                       icon: const Icon(Icons.verified_user_outlined),
-                      label: const Text('Continue with Phone.Email'),
+                      label: Text(
+                        _authMode == PhoneEmailAuthMode.register
+                            ? 'Verify phone and create account'
+                            : 'Verify phone to log in',
+                      ),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(50),
                         backgroundColor: appTeal,
@@ -320,7 +355,10 @@ class _PhoneEmailLoginPageState extends State<PhoneEmailLoginPage> {
   }
 
   Future<void> _continueWithPhoneEmail() async {
-    if (_formKey.currentState?.validate() != true) return;
+    if (_authMode == PhoneEmailAuthMode.register &&
+        _formKey.currentState?.validate() != true) {
+      return;
+    }
     FocusScope.of(context).unfocus();
     if (!_isPhoneAuthReady) {
       await _initializePhoneAuth();
@@ -393,15 +431,37 @@ class _PhoneEmailLoginPageState extends State<PhoneEmailLoginPage> {
     }
     setState(() => _isVerifyingPhone = true);
     try {
-      final profile = await PhoneOtpService.registerWithVerifiedPhone(
+      final profile = await PhoneOtpService.authenticateWithVerifiedPhone(
         accessToken: accessToken,
-        firstName: _firstNameController.text.trim(),
-        lastName: _lastNameController.text.trim(),
+        mode: _authMode == PhoneEmailAuthMode.register ? 'register' : 'login',
+        firstName: _authMode == PhoneEmailAuthMode.register
+            ? _firstNameController.text.trim()
+            : '',
+        lastName: _authMode == PhoneEmailAuthMode.register
+            ? _lastNameController.text.trim()
+            : '',
       );
       if (!mounted) return;
+      final enteredFirstName = _firstNameController.text.trim();
+      final enteredLastName = _lastNameController.text.trim();
+      final isRegistration = _authMode == PhoneEmailAuthMode.register;
+      final firstName = isRegistration
+          ? enteredFirstName
+          : profile.firstName.trim();
+      final lastName = isRegistration
+          ? enteredLastName
+          : profile.lastName.trim();
+      final resolvedProfile = (
+        name: isRegistration
+            ? '$firstName $lastName'.trim()
+            : profile.name.trim(),
+        firstName: firstName,
+        lastName: lastName,
+        phone: profile.phone,
+      );
       setState(() {
         _isVerifyingPhone = false;
-        _verifiedProfile = profile;
+        _verifiedProfile = resolvedProfile;
       });
       FocusScope.of(context).unfocus();
     } on PhoneOtpException catch (error) {
@@ -425,6 +485,8 @@ class _PhoneEmailLoginPageState extends State<PhoneEmailLoginPage> {
     });
   }
 }
+
+enum PhoneEmailAuthMode { signIn, register }
 
 class _VerifiedDetailRow extends StatelessWidget {
   const _VerifiedDetailRow({required this.label, required this.value});

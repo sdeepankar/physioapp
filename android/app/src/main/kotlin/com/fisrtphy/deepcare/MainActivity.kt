@@ -1,4 +1,4 @@
-package com.example.firstphy
+package com.fisrtphy.deepcare
 
 import io.flutter.embedding.android.FlutterActivity
 

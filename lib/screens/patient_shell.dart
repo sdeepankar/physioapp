@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../core/app_settings.dart';
 import '../models/booking.dart';
 import '../models/care_service.dart';
 import '../services/location_service.dart';
+import '../services/appwrite_auth_service.dart';
 import 'booking_flow_screen.dart';
 import 'booking_history_screen.dart';
 import 'profile_screen.dart';
@@ -270,9 +272,19 @@ class _PatientShellState extends State<PatientShell> {
     );
     if (shouldLogout != true || !mounted) return;
     try {
+      await AppwriteAuthService.instance.logout();
+    } on AppwriteAuthException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+      return;
+    }
+    try {
       final preferences = await SharedPreferences.getInstance();
       await preferences.remove(profileNameKey);
       await preferences.remove(profilePhoneKey);
+      await preferences.remove(profilePhoneVerifiedKey);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -291,9 +303,8 @@ class _PatientShellState extends State<PatientShell> {
       _index = 0;
     });
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (_) => const UserDetailsPage()),
+      MaterialPageRoute<void>(builder: (_) => const PhoneEmailLoginPage()),
       (_) => false,
     );
   }
 }
-

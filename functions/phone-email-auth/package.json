@@ -1,0 +1,10 @@
+{
+  "name": "deep-care-phone-email-auth",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Validates Phone.Email OTP credentials and issues Appwrite custom tokens.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  }
+}

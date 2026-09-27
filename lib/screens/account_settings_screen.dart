@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+
+import '../core/appwrite_config.dart';
 import '../core/app_theme.dart';
 import '../core/app_settings.dart';
+import '../services/appwrite_service.dart';
+
 import 'package:geolocator/geolocator.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -25,6 +29,9 @@ class _SettingsPageState extends State<SettingsPage>
   LocationPermission? _locationPermission;
   bool? _locationServiceEnabled;
   bool _checkingLocation = true;
+  bool _checkingAppwrite = false;
+  String? _appwriteStatus;
+  bool _appwriteConnected = false;
 
   @override
   void initState() {
@@ -210,7 +217,7 @@ class _SettingsPageState extends State<SettingsPage>
               SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Your name and phone are saved on this device for your profile. No OTP, authentication, or server upload is used. Demo bookings stay in memory until the app is closed.',
+                  'Phone verification uses Phone.Email. Deep Care does not yet create an Appwrite account or upload profile data; your name, phone, and demo bookings stay on this device.',
                   style: TextStyle(color: appMuted, height: 1.45, fontSize: 13),
                 ),
               ),
@@ -226,6 +233,84 @@ class _SettingsPageState extends State<SettingsPage>
             foregroundColor: const Color(0xFFC4484B),
             side: const BorderSide(color: Color(0xFFEBC6C7)),
             padding: const EdgeInsets.symmetric(vertical: 13),
+          ),
+        ),
+        const SizedBox(height: 22),
+        const SettingsHeading('Backend connection'),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Appwrite',
+                style: TextStyle(
+                  color: appInk,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Check that Deep Care can reach $appwriteProjectName.',
+                style: TextStyle(color: appMuted, fontSize: 12, height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _checkingAppwrite ? null : _checkAppwrite,
+                  icon: _checkingAppwrite
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.cloud_sync_outlined),
+                  label: Text(
+                    _checkingAppwrite
+                        ? 'Checking connection…'
+                        : 'Check Appwrite connection',
+                  ),
+                ),
+              ),
+              if (_appwriteStatus != null) ...[
+                const SizedBox(height: 10),
+                Semantics(
+                  liveRegion: true,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        _appwriteConnected
+                            ? Icons.check_circle_outline
+                            : Icons.error_outline,
+                        size: 18,
+                        color: _appwriteConnected
+                            ? appTeal
+                            : const Color(0xFFC4484B),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _appwriteStatus!,
+                          style: TextStyle(
+                            color: _appwriteConnected
+                                ? appTeal
+                                : const Color(0xFFC4484B),
+                            fontSize: 12,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
         const SizedBox(height: 22),
@@ -263,6 +348,32 @@ class _SettingsPageState extends State<SettingsPage>
         const SnackBar(content: Text('Could not open device app settings.')),
       );
       return;
+    }
+  }
+
+  Future<void> _checkAppwrite() async {
+    setState(() {
+      _checkingAppwrite = true;
+      _appwriteStatus = null;
+    });
+
+    try {
+      final response = await AppwriteService.instance.ping();
+      if (!mounted) return;
+      setState(() {
+        _appwriteConnected = true;
+        _appwriteStatus = response.isEmpty
+            ? 'Connected to Appwrite.'
+            : 'Connected to Appwrite: $response';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _appwriteConnected = false;
+        _appwriteStatus = 'Could not connect. Check your internet connection and Appwrite project settings.';
+      });
+    } finally {
+      if (mounted) setState(() => _checkingAppwrite = false);
     }
   }
 
@@ -366,4 +477,3 @@ class ProfileSectionPage extends StatelessWidget {
     ),
   );
 }
-

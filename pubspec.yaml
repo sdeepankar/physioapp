@@ -30,9 +30,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  appwrite: ^27.0.0
   geocoding: ^5.0.0
   geolocator: ^14.0.3
   shared_preferences: ^2.5.5
+  phone_email_auth: ^0.0.6
   url_launcher: ^6.3.2
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -49,6 +51,12 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+
+dependency_overrides:
+  flutter_inappwebview_android:
+    path: packages/flutter_inappwebview_android
+  flutter_udid:
+    path: packages/flutter_udid
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

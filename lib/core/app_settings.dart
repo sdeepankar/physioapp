@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,13 +7,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 const defaultAccessibility = AccessibilityPreferences();
 const profileNameKey = 'deep_care_profile_name';
 const profilePhoneKey = 'deep_care_profile_phone';
+const profilePhoneVerifiedKey = 'deep_care_profile_phone_verified';
 const bookingBadgeKey = 'deep_care_booking_badge';
 const textScaleKey = 'deep_care_text_scale';
 const reduceMotionKey = 'deep_care_reduce_motion';
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const months = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 class AccessibilityPreferences {
@@ -44,7 +56,6 @@ Future<void> storeAccessibilityPreferences(
     // Keep the current app session usable when local settings cannot be saved.
   }
 }
-
 
 Future<void> initializeAppSettings() async {
   try {

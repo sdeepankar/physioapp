@@ -1,0 +1,11 @@
+{
+  "name": "registered-email-otp",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "node-appwrite": "29.2.0"
+  }
+}

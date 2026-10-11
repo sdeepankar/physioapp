@@ -1,4 +1,4 @@
-name: firstphy
+name: physio
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -30,17 +30,19 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  geocoding: ^5.0.0
-  geolocator: ^14.0.3
-  shared_preferences: ^2.5.5
+
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  shared_preferences: ^2.5.6
+  appwrite: ^27.0.0
+  geolocator: ^14.1.1
+  geocoding: ^5.0.0
+  url_launcher: ^6.3.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_launcher_icons: ^0.14.4
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -48,6 +50,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -61,16 +64,19 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/images/paramedical_health_logo.png
-    - assets/images/paramedical_health_mark.png
-    - assets/images/deep_care_icon.png
+    - assets/images/
 
 flutter_launcher_icons:
   android: true
-  image_path: "assets/images/deep_care_icon.png"
+  image_path: assets/images/paramedical_health_mark_launcher.png
   adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: "assets/images/deep_care_icon.png"
-  adaptive_icon_foreground_inset: 10
+  adaptive_icon_foreground: assets/images/paramedical_health_mark.png
+  adaptive_icon_foreground_inset: 20
+  web:
+    generate: true
+    image_path: assets/images/paramedical_health_mark_launcher.png
+    background_color: "#FFFFFF"
+    theme_color: "#FFFFFF"
 
   # To add assets to your application, add an assets section, like this:
   # assets:

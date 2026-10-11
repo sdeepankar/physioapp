@@ -32,6 +32,7 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+functions/**/node_modules/
 
 # Symbolication related
 app.*.symbols
@@ -46,16 +47,3 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
-
-# Local editor configuration may contain machine-specific SDK/cache paths
-.vscode/
-
-# Local modernization tooling captures terminal invocations and should stay private
-.github/modernize/
-
-# Local Kotlin compiler diagnostics
-/android/.kotlin/
-
-
-# Local Gradle cache
-.gradle-user-home/

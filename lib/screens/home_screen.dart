@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../core/app_theme.dart';
 import '../models/booking.dart';
 import '../models/care_service.dart';
@@ -9,6 +10,7 @@ import '../core/app_settings.dart';
 class HomePage extends StatelessWidget {
   const HomePage({
     super.key,
+    required this.services,
     required this.onServiceTap,
     required this.onBrowseServices,
     required this.bookings,
@@ -20,6 +22,7 @@ class HomePage extends StatelessWidget {
     required this.onNotificationsTap,
     required this.hasUnreadNotifications,
   });
+  final List<CareService> services;
   final ValueChanged<CareService> onServiceTap;
   final VoidCallback onBrowseServices;
   final List<Booking> bookings;
@@ -75,21 +78,31 @@ class HomePage extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
-                GridView.builder(
-                  itemCount: careServices.length,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 4,
-                    mainAxisSpacing: 17,
-                    crossAxisSpacing: 10,
-                    childAspectRatio: .79,
+                if (services.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Text(
+                      'Services are loading or temporarily unavailable.',
+                      style: TextStyle(color: appMuted),
+                    ),
+                  )
+                else
+                  GridView.builder(
+                    itemCount: services.length,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 4,
+                          mainAxisSpacing: 17,
+                          crossAxisSpacing: 10,
+                          childAspectRatio: .79,
+                        ),
+                    itemBuilder: (context, index) => ServiceTile(
+                      service: services[index],
+                      onTap: () => onServiceTap(services[index]),
+                    ),
                   ),
-                  itemBuilder: (context, index) => ServiceTile(
-                    service: careServices[index],
-                    onTap: () => onServiceTap(careServices[index]),
-                  ),
-                ),
                 const SizedBox(height: 24),
                 AppointmentCard(
                   nextVisit: nextVisit,
@@ -351,7 +364,12 @@ class CareBanner extends StatelessWidget {
 }
 
 class ServiceListPage extends StatelessWidget {
-  const ServiceListPage({super.key, required this.onServiceTap});
+  const ServiceListPage({
+    super.key,
+    required this.services,
+    required this.onServiceTap,
+  });
+  final List<CareService> services;
   final ValueChanged<CareService> onServiceTap;
 
   @override
@@ -406,7 +424,16 @@ class ServiceListPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          for (final service in careServices)
+          if (services.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Text(
+                'No services are available right now. Please check again later.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: appMuted),
+              ),
+            ),
+          for (final service in services)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Material(
@@ -506,7 +533,11 @@ class ServiceTile extends StatelessWidget {
 }
 
 class AppointmentCard extends StatelessWidget {
-  const AppointmentCard({super.key, required this.nextVisit, required this.onVisitTap});
+  const AppointmentCard({
+    super.key,
+    required this.nextVisit,
+    required this.onVisitTap,
+  });
 
   final Booking? nextVisit;
   final VoidCallback onVisitTap;
@@ -627,7 +658,10 @@ class AppointmentCard extends StatelessWidget {
                           const SizedBox(height: 4),
                           Text(
                             dateLabel,
-                            style: const TextStyle(fontSize: 11, color: appMuted),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: appMuted,
+                            ),
                           ),
                           if (booking.localitySummary.isNotEmpty) ...[
                             const SizedBox(height: 4),

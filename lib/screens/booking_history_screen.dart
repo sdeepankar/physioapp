@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../core/app_theme.dart';
 import '../models/booking.dart';
 import '../widgets/shared_widgets.dart';
@@ -12,7 +13,7 @@ class BookingsPage extends StatelessWidget {
   });
 
   final List<Booking> bookings;
-  final ValueChanged<String> onBookingCancelled;
+  final Future<void> Function(String) onBookingCancelled;
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +49,7 @@ class BookingsPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Your appointments will appear here once you complete the demo booking flow.',
+                      'Your appointments will appear here after you submit a care request.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: appMuted, height: 1.5),
                     ),
@@ -69,7 +70,7 @@ class BookingsPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Your local demo appointments',
+                  'Your care requests and appointment updates',
                   style: TextStyle(color: appMuted, fontSize: 13),
                 ),
                 const SizedBox(height: 18),
@@ -148,8 +149,8 @@ class BookingCard extends StatelessWidget {
                     color: const Color(0xFFE1F5F0),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: const Text(
-                    'Demo',
+                  child: Text(
+                    bookingStatusLabel(booking.status),
                     style: TextStyle(
                       color: appTeal,
                       fontSize: 10,
@@ -183,7 +184,7 @@ class BookingDetailsPage extends StatelessWidget {
   });
 
   final Booking booking;
-  final ValueChanged<String> onBookingCancelled;
+  final Future<void> Function(String) onBookingCancelled;
 
   @override
   Widget build(BuildContext context) {
@@ -216,7 +217,7 @@ class BookingDetailsPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  'Demo booking · ${booking.id}',
+                  'Booking ID: ${booking.id}',
                   style: const TextStyle(color: appMuted, fontSize: 12),
                 ),
               ],
@@ -225,6 +226,18 @@ class BookingDetailsPage extends StatelessWidget {
           const SizedBox(height: 18),
           ReviewCard(
             children: [
+              ReviewRow(
+                icon: Icons.sync_rounded,
+                label: 'Status',
+                value: bookingStatusLabel(booking.status),
+              ),
+              const Divider(height: 24),
+              ReviewRow(
+                icon: Icons.payments_outlined,
+                label: 'Payment',
+                value: bookingStatusLabel(booking.paymentStatus),
+              ),
+              const Divider(height: 24),
               ReviewRow(
                 icon: Icons.event_outlined,
                 label: 'Date & time',
@@ -254,8 +267,12 @@ class BookingDetailsPage extends StatelessWidget {
                 style: TextStyle(fontWeight: FontWeight.w700, color: appInk),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'A verified professional will be assigned when real booking services are connected.',
+              Text(
+                booking.status == 'pending_assignment'
+                    ? 'Your request is waiting in the admin assignment queue.'
+                    : booking.status == 'assigned'
+                    ? 'A verified professional has been assigned and must accept the request.'
+                    : 'Your request is being handled by the Deep Care team.',
                 style: TextStyle(color: appMuted, height: 1.45, fontSize: 12),
               ),
             ],
@@ -264,15 +281,26 @@ class BookingDetailsPage extends StatelessWidget {
       ),
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(20, 10, 20, 14),
-        child: OutlinedButton(
-          onPressed: () => _confirmCancel(context),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFFC4484B),
-            side: const BorderSide(color: Color(0xFFE8B9BB)),
-            padding: const EdgeInsets.symmetric(vertical: 15),
-          ),
-          child: const Text('Cancel demo booking'),
-        ),
+        child:
+            [
+              'pending_assignment',
+              'assigned',
+              'accepted',
+            ].contains(booking.status)
+            ? OutlinedButton(
+                onPressed: () => _confirmCancel(context),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFC4484B),
+                  side: const BorderSide(color: Color(0xFFE8B9BB)),
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                ),
+                child: const Text('Cancel booking request'),
+              )
+            : const Text(
+                'Cancellation is closed after the provider starts travelling.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: appMuted, fontSize: 12),
+              ),
       ),
     );
   }
@@ -283,7 +311,7 @@ class BookingDetailsPage extends StatelessWidget {
       builder: (context) => AlertDialog(
         title: const Text('Cancel this booking?'),
         content: const Text(
-          'This will remove the demo booking from My Bookings.',
+          'This will cancel your booking request. Cancellation is allowed only before the provider is on the way.',
         ),
         actions: [
           TextButton(
@@ -302,8 +330,24 @@ class BookingDetailsPage extends StatelessWidget {
     );
 
     if (shouldCancel != true || !context.mounted) return;
-    onBookingCancelled(booking.id);
-    Navigator.of(context).pop();
+    try {
+      await onBookingCancelled(booking.id);
+      if (context.mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (!context.mounted) return;
+      final message = error is FormatException
+          ? error.message
+          : 'Could not cancel this booking. Please try again.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 }
 
+String bookingStatusLabel(String status) => status
+    .split('_')
+    .map(
+      (part) =>
+          part.isEmpty ? part : '${part[0].toUpperCase()}${part.substring(1)}',
+    )
+    .join(' ');

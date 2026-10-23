@@ -1,6 +1,6 @@
 # Deep Care
 
-Deep Care is a Flutter app prototype for booking at-home healthcare services. It currently runs as a client-side demo. Patient accounts, provider management, server-backed bookings, and real payments are not connected.
+Deep Care is a Flutter app for booking at-home healthcare services. The client build uses Appwrite email OTP and one Appwrite Function, `registered-email-otp`, for both login email checks and profile, service, and order data. Provider and admin workflows are exposed by that API, while their separate app interfaces are not part of this client build yet.
 
 ## First-time setup
 
@@ -29,13 +29,13 @@ Keep the project and Flutter's package cache on the same drive when possible. Th
 ## Current progress
 
 - Branded launch screen with a white background and the supplied Deep Care mark as the Android app icon.
-- First-run profile form for a name and Indian mobile number. There is no OTP, password, or phone verification. The details are saved on the device and shown in Profile on later launches.
+- Email OTP sign-in/sign-up through Appwrite, followed by profile synchronization to `user_profiles`.
 - Profile editing and a Log out action. Logging out removes the saved name and number and returns to the profile form.
 - Automatic location lookup after the profile form and on later app launches. The home screen displays the detected area, city, state, and PIN code. Location permission is requested from Android when needed.
 - Service address form prefilled from the home location, with a **Use my current location** action to fetch the details again. The exact house or street address remains a separate field.
-- Care-service browsing and search, appointment date and time selection, address entry, booking review, confirmation, My Bookings, booking details, and cancellation.
+- Service browsing and search from active `services` rows, appointment date and time selection, order creation in `orders`, status history in `order_events`, My Bookings, booking details, and server-side cancellation.
 - The home screen's **Your next visit** card selects the nearest future booking, shows its service, date/time, and locality, and opens the booking details. With no upcoming appointment, it links to service browsing.
-- UPI is the only payment option shown. It is a demo flow and does not open a UPI app or charge a payment.
+- UPI is a demo preview. Order payment status stays `pending`; the app does not open a UPI app or charge a payment.
 - Profile area with personal details, bookings, address book, payment methods, settings, and help and support. Medical history, documents, family members, payment methods, and help and support still need their real flows.
 - Settings for the in-app booking badge, app-wide text size, reduced motion, location permissions, and clearing the locally saved profile. Settings are stored on the device.
 - English interface and Android app display name **Deep Care**.
@@ -60,16 +60,16 @@ Android location permissions are declared in `android/app/src/main/AndroidManife
 
 ## Local data and integrations
 
-The name, phone number, and app settings use on-device preferences. They are not uploaded to a backend. Demo bookings are held in memory and do not survive an app restart. A name and phone number do not prove a user's identity; add a real phone verification and account flow before relying on them for healthcare bookings.
+The user profile and service/order data use Appwrite after the `registered-email-otp` Function has been redeployed with the combined source in `functions/registered-email-otp`. Saved addresses, medical history, and app settings remain on-device because the current five-table schema has no tables/columns for them. The UPI screen remains a demo and does not process or verify payment.
 
 Before launch, the app still needs:
 
-- A backend for patient, provider, staff, booking, and service data. Appwrite is the currently selected backend direction.
-- Genuine phone verification and account recovery.
-- Provider onboarding, verification, availability, and booking management.
+- Redeploy and configure the existing `registered-email-otp` Function as described in `functions/registered-email-otp/README.md`; verify its database and table IDs against the Appwrite Console.
+- Build the provider and admin app interfaces against the role-checked API routes.
+- Provider onboarding, verification, availability, and booking management interfaces.
 - A real UPI payment provider and server-side payment confirmation.
 - Push or messaging notifications for booking status and reminders.
-- Persistent bookings, addresses, and profile data on the backend, with appropriate privacy and access controls.
+- Appropriate backend tables for saved addresses and medical history, with access controls.
 - Hindi translations and a complete help/support contact flow.
 
 ## Project structure

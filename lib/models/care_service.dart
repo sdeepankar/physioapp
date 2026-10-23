@@ -6,8 +6,41 @@ class CareService {
     this.subtitle,
     this.icon,
     this.color,
-    this.price,
-  );
+    this.price, {
+    this.id = '',
+    this.priceAmount = 0,
+    this.priceUnit = 'per_visit',
+  });
+
+  factory CareService.fromRow(Map<String, dynamic> row) {
+    final name = row['name'] as String? ?? 'Care service';
+    final priceAmount = (row['basePrice'] as num?)?.toDouble() ?? 0;
+    final visual = careServices.cast<CareService?>().firstWhere(
+      (service) => service!.name.toLowerCase() == name.toLowerCase(),
+      orElse: () => null,
+    );
+    final description = row['description'] as String? ?? '';
+    final unit = row['priceUnit'] as String? ?? 'per_visit';
+    final rupee = String.fromCharCode(0x20B9);
+    final formattedPrice = priceAmount == priceAmount.roundToDouble()
+        ? '$rupee${priceAmount.toStringAsFixed(0)}'
+        : '$rupee${priceAmount.toStringAsFixed(2)}';
+
+    return CareService(
+      name,
+      description.isNotEmpty ? description : (visual?.subtitle ?? ''),
+      visual?.icon ?? Icons.medical_services_outlined,
+      visual?.color ?? const Color(0xFF43A8D4),
+      unit == 'from' ? 'From $formattedPrice' : formattedPrice,
+      id: row[r'$id'] as String? ?? '',
+      priceAmount: priceAmount,
+      priceUnit: unit,
+    );
+  }
+
+  final String id;
+  final double priceAmount;
+  final String priceUnit;
   final String name;
   final String subtitle;
   final IconData icon;

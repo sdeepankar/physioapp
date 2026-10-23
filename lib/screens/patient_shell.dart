@@ -35,6 +35,7 @@ class PatientShell extends StatefulWidget {
 class _PatientShellState extends State<PatientShell> {
   int _index = 0;
   final List<Booking> _bookings = [];
+  List<CareService> _services = const [];
   late PatientProfile _profile = widget.profile;
   CurrentPlace? _currentPlace;
   bool _isLocating = false;
@@ -46,6 +47,7 @@ class _PatientShellState extends State<PatientShell> {
   @override
   void initState() {
     super.initState();
+    _loadBackendData();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _updateLocation(automatic: true);
     });
@@ -61,6 +63,7 @@ class _PatientShellState extends State<PatientShell> {
   Widget build(BuildContext context) {
     final pages = <Widget>[
       HomePage(
+        services: _services,
         onServiceTap: _showService,
         onBrowseServices: _openServices,
         bookings: _bookings,
@@ -72,7 +75,7 @@ class _PatientShellState extends State<PatientShell> {
         onNotificationsTap: _openNotifications,
         hasUnreadNotifications: _hasUnreadNotifications && _bookingBadgeEnabled,
       ),
-      BookingsPage(bookings: _bookings, onBookingCancelled: _removeBooking),
+      BookingsPage(bookings: _bookings, onBookingCancelled: _cancelBooking),
       const SimplePage(
         icon: Icons.local_offer_outlined,
         title: 'Offers for you',
@@ -100,6 +103,7 @@ class _PatientShellState extends State<PatientShell> {
           onDestinationSelected: (value) {
             _clearExitHint();
             setState(() => _index = value);
+            if (value == 1) _loadBackendData();
           },
           backgroundColor: Colors.white,
           indicatorColor: const Color(0xFFDDF4EE),
@@ -175,14 +179,16 @@ class _PatientShellState extends State<PatientShell> {
   void _openServices() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ServiceListPage(onServiceTap: _showService),
+        builder: (_) =>
+            ServiceListPage(services: _services, onServiceTap: _showService),
       ),
     );
   }
 
   void _openSearch() => Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => ServiceSearchPage(onServiceTap: _showService),
+      builder: (_) =>
+          ServiceSearchPage(services: _services, onServiceTap: _showService),
     ),
   );
 
@@ -192,7 +198,7 @@ class _PatientShellState extends State<PatientShell> {
       MaterialPageRoute<void>(
         builder: (_) => NotificationsPage(
           bookings: _bookings,
-          onBookingCancelled: _removeBooking,
+          onBookingCancelled: _cancelBooking,
         ),
       ),
     );
@@ -226,23 +232,29 @@ class _PatientShellState extends State<PatientShell> {
         builder: (_) => ServiceDetailsPage(
           service: service,
           currentPlace: _currentPlace,
-          onBookingConfirmed: _addBooking,
+          onBookingConfirmed: _createBooking,
         ),
       ),
     );
   }
 
-  void _addBooking(Booking booking) {
+  Future<Booking> _createBooking(Booking booking) async {
+    final savedBooking = await AppwriteService.instance.createOrder(booking);
     setState(() {
-      _bookings.insert(0, booking);
+      _bookings.insert(0, savedBooking);
       _hasUnreadNotifications = true;
       _index = 1;
     });
+    return savedBooking;
   }
 
-  void _removeBooking(String bookingId) {
+  Future<void> _cancelBooking(String bookingId) async {
+    await AppwriteService.instance.cancelClientOrder(bookingId);
     setState(() {
-      _bookings.removeWhere((booking) => booking.id == bookingId);
+      final index = _bookings.indexWhere((booking) => booking.id == bookingId);
+      if (index >= 0) {
+        _bookings[index] = _bookings[index].withStatus('cancelled');
+      }
     });
   }
 
@@ -251,10 +263,32 @@ class _PatientShellState extends State<PatientShell> {
       MaterialPageRoute<void>(
         builder: (_) => BookingDetailsPage(
           booking: booking,
-          onBookingCancelled: _removeBooking,
+          onBookingCancelled: _cancelBooking,
         ),
       ),
     );
+  }
+
+  Future<void> _loadBackendData() async {
+    try {
+      await AppwriteService.instance.syncClientProfile(_profile);
+      final services = await AppwriteService.instance.listActiveServices();
+      final bookings = await AppwriteService.instance.listClientOrders();
+      if (!mounted) return;
+      setState(() {
+        _services = services;
+        _bookings
+          ..clear()
+          ..addAll(bookings);
+      });
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is FormatException
+          ? error.message
+          : 'Could not load your services and bookings. Please retry later.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   Future<void> _editProfile() async {
@@ -301,6 +335,17 @@ class _PatientShellState extends State<PatientShell> {
               profileEmergencyContactKey,
               profile.emergencyContact,
             );
+            try {
+              await AppwriteService.instance.syncClientProfile(profile);
+            } catch (error) {
+              if (mounted) {
+                final message = error is FormatException
+                    ? error.message
+                    : 'Your profile changes could not sync to the server.';
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text(message)));
+              }
+            }
             if (!mounted) return;
             setState(() => _profile = profile);
           },
@@ -384,7 +429,7 @@ class _PatientShellState extends State<PatientShell> {
       builder: (context) => AlertDialog(
         title: const Text('Log out of this session?'),
         content: const Text(
-          'This will remove your saved profile and health details, demo bookings, and detected location from this device.',
+          'This will sign you out and clear locally saved health details, addresses, and detected location.',
         ),
         actions: [
           TextButton(

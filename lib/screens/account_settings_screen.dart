@@ -217,7 +217,7 @@ class _SettingsPageState extends State<SettingsPage>
               SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Your name, phone number, and demo bookings are saved on this device. Profile details are not uploaded to a server.',
+                  'Your name, phone number, services, and bookings sync with your Deep Care account. Medical history and saved addresses remain on this device.',
                   style: TextStyle(color: appMuted, height: 1.45, fontSize: 13),
                 ),
               ),

@@ -1,6 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../core/app_theme.dart';
+import '../models/saved_address.dart';
 import '../models/booking.dart';
 import '../models/care_service.dart';
 import '../widgets/shared_widgets.dart';
@@ -17,7 +22,7 @@ class ServiceDetailsPage extends StatelessWidget {
 
   final CareService service;
   final CurrentPlace? currentPlace;
-  final ValueChanged<Booking> onBookingConfirmed;
+  final Future<Booking> Function(Booking) onBookingConfirmed;
 
   @override
   Widget build(BuildContext context) {
@@ -182,7 +187,7 @@ class DateTimePage extends StatefulWidget {
 
   final CareService service;
   final CurrentPlace? currentPlace;
-  final ValueChanged<Booking> onBookingConfirmed;
+  final Future<Booking> Function(Booking) onBookingConfirmed;
 
   @override
   State<DateTimePage> createState() => _DateTimePageState();
@@ -226,7 +231,11 @@ class _DateTimePageState extends State<DateTimePage> {
           const SizedBox(height: 20),
           Row(
             children: [
-              const Icon(Icons.calendar_month_rounded, color: appTeal, size: 20),
+              const Icon(
+                Icons.calendar_month_rounded,
+                color: appTeal,
+                size: 20,
+              ),
               const SizedBox(width: 9),
               Text(
                 '${months[selectedDate.month - 1]} ${selectedDate.year}',
@@ -342,7 +351,11 @@ class _DateTimePageState extends State<DateTimePage> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.info_outline_rounded, color: appTeal, size: 19),
+                const Icon(
+                  Icons.info_outline_rounded,
+                  color: appTeal,
+                  size: 19,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -400,7 +413,7 @@ class BookingAddressPage extends StatefulWidget {
   final CurrentPlace? currentPlace;
   final DateTime date;
   final String time;
-  final ValueChanged<Booking> onBookingConfirmed;
+  final Future<Booking> Function(Booking) onBookingConfirmed;
 
   @override
   State<BookingAddressPage> createState() => _BookingAddressPageState();
@@ -415,20 +428,77 @@ class _BookingAddressPageState extends State<BookingAddressPage> {
   final _pinController = TextEditingController();
   final _landmarkController = TextEditingController();
   String _addressType = 'Home';
+  List<SavedAddress> _savedAddresses = [];
+  String? _selectedSavedAddressId;
   String? _locationMessage;
   bool _isLocating = false;
+  bool _loadingSavedAddresses = true;
 
   static const _addressTypes = ['Home', 'Work', 'Other'];
 
   @override
   void initState() {
     super.initState();
+    _loadSavedAddresses();
     final place = widget.currentPlace;
     if (place != null) {
       _areaController.text = place.area;
       _cityController.text = place.city;
       _stateController.text = place.state;
       _pinController.text = place.postalCode;
+    }
+  }
+
+  Future<void> _loadSavedAddresses() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final encoded = preferences.getString(savedAddressesKey);
+      final addresses = encoded == null
+          ? <SavedAddress>[]
+          : (jsonDecode(encoded) as List<dynamic>)
+                .map(
+                  (item) => SavedAddress.fromJson(
+                    Map<String, dynamic>.from(item as Map),
+                  ),
+                )
+                .toList();
+      if (!mounted) return;
+      setState(() {
+        _savedAddresses = addresses;
+        _loadingSavedAddresses = false;
+      });
+    } catch (error) {
+      debugPrint('Could not load saved addresses for booking: $error');
+      if (!mounted) return;
+      setState(() => _loadingSavedAddresses = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load your saved addresses.')),
+      );
+    }
+  }
+
+  void _applySavedAddress(String? addressId) {
+    if (addressId == null) return;
+    final address = _savedAddresses.firstWhere(
+      (savedAddress) => savedAddress.id == addressId,
+    );
+    setState(() {
+      _selectedSavedAddressId = address.id;
+      _addressType = _addressTypes.contains(address.addressType)
+          ? address.addressType
+          : 'Other';
+      _addressController.text = address.address;
+      _areaController.text = address.area;
+      _cityController.text = address.city;
+      _stateController.text = address.state;
+      _pinController.text = address.pinCode;
+      _landmarkController.text = address.landmark;
+    });
+  }
+
+  void _clearSavedAddressSelection() {
+    if (_selectedSavedAddressId != null) {
+      setState(() => _selectedSavedAddressId = null);
     }
   }
 
@@ -512,6 +582,33 @@ class _BookingAddressPageState extends State<BookingAddressPage> {
                   : 'Your location details are filled in. Enter your exact house or street address below.',
               style: TextStyle(color: appMuted, fontSize: 13),
             ),
+            if (_savedAddresses.isNotEmpty) ...[
+              const SizedBox(height: 17),
+              DropdownButtonFormField<String>(
+                initialValue: _selectedSavedAddressId,
+                isExpanded: true,
+                decoration: _addressDecoration(
+                  label: 'Use a saved address',
+                  hint: 'Choose an address from your address book',
+                  icon: Icons.bookmark_outline_rounded,
+                ),
+                items: [
+                  for (final address in _savedAddresses)
+                    DropdownMenuItem<String>(
+                      value: address.id,
+                      child: Text(
+                        '${address.label} · ${address.address}, ${address.localitySummary}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: _applySavedAddress,
+              ),
+            ] else if (_loadingSavedAddresses) ...[
+              const SizedBox(height: 17),
+              const LinearProgressIndicator(color: appTeal),
+            ],
             const SizedBox(height: 14),
             OutlinedButton.icon(
               onPressed: _isLocating ? null : _useCurrentLocation,
@@ -559,7 +656,10 @@ class _BookingAddressPageState extends State<BookingAddressPage> {
                   ChoiceChip(
                     label: Text(type),
                     selected: _addressType == type,
-                    onSelected: (_) => setState(() => _addressType = type),
+                    onSelected: (_) => setState(() {
+                      _addressType = type;
+                      _selectedSavedAddressId = null;
+                    }),
                     selectedColor: const Color(0xFFDDF4EE),
                     labelStyle: TextStyle(
                       color: _addressType == type ? appTeal : appInk,
@@ -584,6 +684,7 @@ class _BookingAddressPageState extends State<BookingAddressPage> {
                 hint: 'House / flat number and street',
                 icon: Icons.location_on_outlined,
               ),
+              onChanged: (_) => _clearSavedAddressSelection(),
               validator: (value) => value == null || value.trim().length < 8
                   ? 'Enter a complete address'
                   : null,
@@ -597,6 +698,7 @@ class _BookingAddressPageState extends State<BookingAddressPage> {
                 hint: 'Neighbourhood or locality',
                 icon: Icons.map_outlined,
               ),
+              onChanged: (_) => _clearSavedAddressSelection(),
               validator: (value) => value == null || value.trim().isEmpty
                   ? 'Enter your area'
                   : null,
@@ -610,6 +712,7 @@ class _BookingAddressPageState extends State<BookingAddressPage> {
                 hint: 'City or town',
                 icon: Icons.location_city_outlined,
               ),
+              onChanged: (_) => _clearSavedAddressSelection(),
               validator: (value) => value == null || value.trim().isEmpty
                   ? 'Enter your city'
                   : null,
@@ -626,6 +729,7 @@ class _BookingAddressPageState extends State<BookingAddressPage> {
                       hint: 'State',
                       icon: Icons.map_outlined,
                     ),
+                    onChanged: (_) => _clearSavedAddressSelection(),
                     validator: (value) => value == null || value.trim().isEmpty
                         ? 'Enter your state'
                         : null,
@@ -642,6 +746,7 @@ class _BookingAddressPageState extends State<BookingAddressPage> {
                       hint: '6 digits',
                       icon: Icons.pin_drop_outlined,
                     ).copyWith(counterText: ''),
+                    onChanged: (_) => _clearSavedAddressSelection(),
                     validator: (value) =>
                         value == null ||
                             !RegExp(r'^\d{6}$').hasMatch(value.trim())
@@ -660,6 +765,7 @@ class _BookingAddressPageState extends State<BookingAddressPage> {
                 hint: 'Nearby landmark',
                 icon: Icons.near_me_outlined,
               ),
+              onChanged: (_) => _clearSavedAddressSelection(),
             ),
           ],
         ),
@@ -750,7 +856,7 @@ class _BookingAddressPageState extends State<BookingAddressPage> {
       MaterialPageRoute<void>(
         builder: (_) => BookingReviewPage(
           booking: Booking(
-            id: 'PH${DateTime.now().millisecondsSinceEpoch}',
+            id: '',
             service: widget.service,
             date: widget.date,
             time: widget.time,
@@ -761,6 +867,7 @@ class _BookingAddressPageState extends State<BookingAddressPage> {
             state: _stateController.text.trim(),
             pinCode: _pinController.text.trim(),
             landmark: _landmarkController.text.trim(),
+            clientRequestId: Booking.createClientRequestId(),
           ),
           onBookingConfirmed: widget.onBookingConfirmed,
         ),
@@ -777,7 +884,7 @@ class BookingReviewPage extends StatelessWidget {
   });
 
   final Booking booking;
-  final ValueChanged<Booking> onBookingConfirmed;
+  final Future<Booking> Function(Booking) onBookingConfirmed;
 
   @override
   Widget build(BuildContext context) {
@@ -917,7 +1024,7 @@ class BookingReviewPage extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           const Text(
-            'Your appointment is not confirmed until payment is completed.',
+            'Submitting this request does not charge your payment method. Payment stays pending until a real payment provider is connected.',
             textAlign: TextAlign.center,
             style: TextStyle(color: appMuted, fontSize: 12),
           ),
@@ -953,7 +1060,7 @@ class PaymentPage extends StatelessWidget {
   });
 
   final Booking booking;
-  final ValueChanged<Booking> onBookingConfirmed;
+  final Future<Booking> Function(Booking) onBookingConfirmed;
 
   @override
   Widget build(BuildContext context) {
@@ -975,7 +1082,10 @@ class PaymentPage extends StatelessWidget {
             child: Row(
               children: [
                 const Expanded(
-                  child: Text('Total amount', style: TextStyle(color: appMuted)),
+                  child: Text(
+                    'Total amount',
+                    style: TextStyle(color: appMuted),
+                  ),
                 ),
                 Text(
                   booking.service.price,
@@ -990,7 +1100,7 @@ class PaymentPage extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           const Text(
-            'Pay with UPI',
+            'Payment method preview',
             style: TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.w700,
@@ -1077,14 +1187,14 @@ class PaymentPage extends StatelessWidget {
             backgroundColor: appTeal,
             padding: const EdgeInsets.symmetric(vertical: 16),
           ),
-          child: const Text('Continue with UPI'),
+          child: const Text('Continue to submit request'),
         ),
       ),
     );
   }
 }
 
-class BookingConfirmationPage extends StatelessWidget {
+class BookingConfirmationPage extends StatefulWidget {
   const BookingConfirmationPage({
     super.key,
     required this.booking,
@@ -1092,10 +1202,45 @@ class BookingConfirmationPage extends StatelessWidget {
   });
 
   final Booking booking;
-  final ValueChanged<Booking> onBookingConfirmed;
+  final Future<Booking> Function(Booking) onBookingConfirmed;
+
+  @override
+  State<BookingConfirmationPage> createState() =>
+      _BookingConfirmationPageState();
+}
+
+class _BookingConfirmationPageState extends State<BookingConfirmationPage> {
+  bool _isSaving = false;
+  String? _error;
+  Booking? _savedBooking;
+
+  Future<void> _submitBooking() async {
+    setState(() {
+      _isSaving = true;
+      _error = null;
+    });
+    try {
+      final saved = await widget.onBookingConfirmed(widget.booking);
+      if (!mounted) return;
+      setState(() {
+        _savedBooking = saved;
+        _isSaving = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error is FormatException
+            ? error.message
+            : 'Could not submit your request. Please try again.';
+        _isSaving = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final booking = _savedBooking ?? widget.booking;
+    final isSaved = _savedBooking != null;
     return Scaffold(
       body: SafeArea(
         child: ListView(
@@ -1109,12 +1254,18 @@ class BookingConfirmationPage extends StatelessWidget {
                   color: Color(0xFFDDF4EE),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.check_rounded, color: appTeal, size: 48),
+                child: Icon(
+                  isSaved
+                      ? Icons.check_rounded
+                      : Icons.medical_services_outlined,
+                  color: appTeal,
+                  size: 48,
+                ),
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
-              'Your booking is confirmed!',
+            Text(
+              isSaved ? 'Care request submitted' : 'Submit your care request',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 23,
@@ -1123,8 +1274,10 @@ class BookingConfirmationPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'This is a local demo confirmation. UPI payment has not been processed.',
+            Text(
+              isSaved
+                  ? 'Your request is saved. Payment remains pending; no UPI payment has been processed.'
+                  : 'This will send your appointment request to Deep Care. No payment will be charged in this demo.',
               textAlign: TextAlign.center,
               style: TextStyle(color: appMuted, height: 1.45, fontSize: 13),
             ),
@@ -1134,7 +1287,7 @@ class BookingConfirmationPage extends StatelessWidget {
                 ReviewRow(
                   icon: Icons.confirmation_number_outlined,
                   label: 'Booking ID',
-                  value: booking.id,
+                  value: isSaved ? booking.id : 'Created after submission',
                 ),
                 const Divider(height: 24),
                 ReviewRow(
@@ -1157,14 +1310,30 @@ class BookingConfirmationPage extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 19),
+            if (_error != null) ...[
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFE7E6),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: Color(0xFFC4484B)),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: const Color(0xFFFFF4E3),
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: const Text(
-                'Connect a UPI payment provider and booking backend before using this flow for real appointments.',
+              child: Text(
+                isSaved
+                    ? 'The admin team will assign a verified provider. Assignment and visit updates will appear in My Bookings.'
+                    : 'Your request is not saved until you submit it below.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Color(0xFF795821),
@@ -1179,18 +1348,37 @@ class BookingConfirmationPage extends StatelessWidget {
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(20, 10, 20, 14),
         child: FilledButton(
-          onPressed: () {
-            Navigator.of(context).popUntil((route) => route.isFirst);
-            onBookingConfirmed(booking);
-          },
+          onPressed: _isSaving
+              ? null
+              : isSaved
+              ? () => Navigator.of(context).popUntil((route) => route.isFirst)
+              : _submitBooking,
           style: FilledButton.styleFrom(
             backgroundColor: appTeal,
             padding: const EdgeInsets.symmetric(vertical: 16),
           ),
-          child: const Text('View my bookings'),
+          child: _isSaving
+              ? const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 10),
+                    Text('Submitting request…'),
+                  ],
+                )
+              : Text(
+                  isSaved
+                      ? 'View my bookings'
+                      : _error == null
+                      ? 'Submit booking request'
+                      : 'Retry submission',
+                ),
         ),
       ),
     );
   }
 }
-

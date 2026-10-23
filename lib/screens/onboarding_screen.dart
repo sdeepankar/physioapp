@@ -489,6 +489,14 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           await preferences.setInt(profileAgeKey, age);
         }
       }
+      await AppwriteService.instance.syncClientProfile(
+        PatientProfile(
+          name: name,
+          phone: phone,
+          gender: preferences.getString(profileGenderKey) ?? '',
+          age: preferences.getInt(profileAgeKey),
+        ),
+      );
       final bookingBadgeEnabled = preferences.getBool(bookingBadgeKey) ?? true;
       if (!mounted) return;
       Navigator.of(context).pushReplacement(

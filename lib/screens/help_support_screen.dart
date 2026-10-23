@@ -368,7 +368,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
   static const _faqs = <(String, String)>[
     (
       'How do I book a home visit?',
-      'Choose a service, review its details, select a date and time, add the visit address, then review and confirm. The demo booking stays in the current app session; it is not sent to a care provider.',
+      'Choose a service, select a date and time, add the visit address, review the request, and submit it. The request is saved to your Deep Care account for admin assignment.',
     ),
     (
       'Which areas do you serve?',
@@ -376,7 +376,7 @@ class _HelpSupportScreenState extends State<HelpSupportScreen> {
     ),
     (
       'How do I change or cancel a booking?',
-      'Open My bookings and select a booking to view its details. The current prototype supports cancelling a demo booking; rescheduling is not available yet.',
+      'Open My bookings and select a request to see its status and details. You can cancel before the provider is on the way. Rescheduling is not available yet.',
     ),
     (
       'How does payment work?',

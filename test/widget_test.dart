@@ -5,12 +5,18 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:physio/models/care_service.dart';
 import 'package:physio/models/patient_profile.dart';
+import 'package:physio/models/saved_address.dart';
+import 'package:physio/screens/booking_flow_screen.dart';
 import 'package:physio/screens/profile_screen.dart';
 import 'package:physio/screens/onboarding_screen.dart';
+import 'package:physio/core/app_settings.dart';
 
 void main() {
   testWidgets('Material app smoke test', (WidgetTester tester) async {
@@ -146,15 +152,27 @@ void main() {
       find.widgetWithText(TextFormField, 'Area / locality'),
       'Indiranagar',
     );
-    await tester.enterText(find.widgetWithText(TextFormField, 'City'), 'Bengaluru');
-    await tester.enterText(find.widgetWithText(TextFormField, 'State'), 'Karnataka');
-    await tester.enterText(find.widgetWithText(TextFormField, 'PIN code'), '560038');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'City'),
+      'Bengaluru',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'State'),
+      'Karnataka',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'PIN code'),
+      '560038',
+    );
     await tester.tap(find.text('Save address'));
     await tester.pumpAndSettle();
 
     expect(find.text('No saved addresses yet'), findsNothing);
     expect(find.text('22 Lake View Road'), findsOneWidget);
-    expect(find.text('Indiranagar, Bengaluru, Karnataka, 560038'), findsOneWidget);
+    expect(
+      find.text('Indiranagar, Bengaluru, Karnataka, 560038'),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byTooltip('Edit address'));
     await tester.pumpAndSettle();
@@ -172,5 +190,54 @@ void main() {
     await tester.tap(find.text('Delete').last);
     await tester.pumpAndSettle();
     expect(find.text('No saved addresses yet'), findsOneWidget);
+  });
+
+  testWidgets('booking form can fill its address from the address book', (
+    WidgetTester tester,
+  ) async {
+    const savedAddress = SavedAddress(
+      id: 'home-1',
+      label: 'Home',
+      addressType: 'Home',
+      address: '22 Lake View Road',
+      area: 'Indiranagar',
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      pinCode: '560038',
+      landmark: 'Lake View Park',
+    );
+    SharedPreferences.setMockInitialValues({
+      savedAddressesKey: jsonEncode([savedAddress.toJson()]),
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookingAddressPage(
+          service: careServices.first,
+          currentPlace: null,
+          date: DateTime(2026, 10, 24),
+          time: '10:00 AM',
+          onBookingConfirmed: (booking) async => booking,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final addressPicker = find.byType(DropdownButtonFormField<String>);
+    expect(addressPicker, findsOneWidget);
+    await tester.tap(addressPicker);
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Home · 22 Lake View Road'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Save & continue'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Review booking'), findsOneWidget);
+    expect(
+      find.text('22 Lake View Road\nIndiranagar\nBengaluru, Karnataka, 560038'),
+      findsOneWidget,
+    );
+    expect(find.text(savedAddress.landmark), findsOneWidget);
   });
 }

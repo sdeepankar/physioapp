@@ -157,7 +157,7 @@ class ProfilePage extends StatelessWidget {
           ProfileMenuTile(
             icon: Icons.location_on_outlined,
             title: 'Address book',
-            subtitle: 'Addresses used for demo bookings',
+            subtitle: 'Addresses used for bookings',
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => AddressBookPage(bookings: bookings),
@@ -204,7 +204,7 @@ class ProfilePage extends StatelessWidget {
           ProfileMenuTile(
             icon: Icons.logout_rounded,
             title: 'Log out',
-            subtitle: 'Remove your saved profile and demo bookings',
+            subtitle: 'Sign out and clear locally saved health details',
             isDestructive: true,
             onTap: onLogout,
           ),
@@ -303,7 +303,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
                 SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Your personal details are saved on this device.',
+                    'Your account details sync to your Deep Care profile. Medical history stays on this device.',
                     style: TextStyle(color: appInk, height: 1.4, fontSize: 13),
                   ),
                 ),
@@ -648,7 +648,9 @@ class _MedicalHistoryPageState extends State<MedicalHistoryPage> {
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not save medical history. Try again.')),
+        const SnackBar(
+          content: Text('Could not save medical history. Try again.'),
+        ),
       );
     }
   }
@@ -1069,7 +1071,9 @@ class _AddressBookPageState extends State<AddressBookPage> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not save your address. Try again.')),
+          const SnackBar(
+            content: Text('Could not save your address. Try again.'),
+          ),
         );
       }
     }

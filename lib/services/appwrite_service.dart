@@ -5,6 +5,9 @@ import 'package:appwrite/enums.dart' as enums;
 import 'package:appwrite/models.dart';
 
 import '../core/appwrite_config.dart';
+import '../models/booking.dart';
+import '../models/care_service.dart';
+import '../models/patient_profile.dart';
 
 class AppwriteService {
   AppwriteService._()
@@ -22,6 +25,117 @@ class AppwriteService {
   late final Functions functions;
 
   Future<String> ping() => client.ping();
+
+  Future<Map<String, dynamic>> syncClientProfile(PatientProfile profile) =>
+      _call('/profile/sync', {
+        'name': profile.name,
+        'phone': profile.phone,
+        'gender': profile.gender,
+        'age': profile.age,
+      });
+
+  Future<List<CareService>> listActiveServices() async {
+    final response = await _call(
+      '/services',
+      const {},
+      method: enums.ExecutionMethod.gET,
+    );
+    final rows = response['rows'];
+    if (rows is! List) {
+      throw const FormatException('The service list response was invalid.');
+    }
+    return rows
+        .whereType<Map>()
+        .map((row) => CareService.fromRow(Map<String, dynamic>.from(row)))
+        .toList();
+  }
+
+  Future<List<Booking>> listClientOrders() async {
+    final response = await _call(
+      '/orders',
+      const {},
+      method: enums.ExecutionMethod.gET,
+    );
+    final rows = response['rows'];
+    if (rows is! List) {
+      throw const FormatException('The booking list response was invalid.');
+    }
+    return rows
+        .whereType<Map>()
+        .map((row) => Booking.fromOrderRow(Map<String, dynamic>.from(row)))
+        .toList();
+  }
+
+  Future<Booking> createOrder(Booking booking) async {
+    if (booking.service.id.isEmpty) {
+      throw const FormatException(
+        'This service is not connected to the database. Reload services and try again.',
+      );
+    }
+    if (booking.clientRequestId.isEmpty) {
+      throw const FormatException(
+        'This booking request has expired. Please review and submit it again.',
+      );
+    }
+    final response = await _call('/orders', {
+      'clientRequestId': booking.clientRequestId,
+      'serviceId': booking.service.id,
+      'scheduledAt': booking.scheduledAt.toUtc().toIso8601String(),
+      'addressType': booking.addressType,
+      'address': booking.address,
+      'area': booking.area,
+      'city': booking.city,
+      'state': booking.state,
+      'pinCode': booking.pinCode,
+      'landmark': booking.landmark,
+    });
+    final row = response['row'];
+    if (row is! Map) {
+      throw const FormatException('The new booking response was invalid.');
+    }
+    return Booking.fromOrderRow(Map<String, dynamic>.from(row));
+  }
+
+  Future<void> cancelClientOrder(String orderId) async {
+    await _call('/orders/$orderId/cancel', const {});
+  }
+
+  Future<Map<String, dynamic>> _call(
+    String path,
+    Map<String, dynamic> body, {
+    enums.ExecutionMethod method = enums.ExecutionMethod.pOST,
+  }) async {
+    final execution = await functions.createExecution(
+      functionId: appwriteRegisteredEmailFunctionId,
+      body: jsonEncode(body),
+      xasync: false,
+      path: path,
+      method: method,
+    );
+    final statusCode = execution.responseStatusCode;
+    Map<String, dynamic> response;
+    try {
+      response = Map<String, dynamic>.from(
+        jsonDecode(execution.responseBody) as Map,
+      );
+    } on Object {
+      if (statusCode >= 200 && statusCode < 300) {
+        throw const FormatException(
+          'The backend returned an invalid response.',
+        );
+      }
+      throw FormatException('Backend request failed (HTTP $statusCode).');
+    }
+    if (statusCode < 200 || statusCode >= 300) {
+      final message = response['message'];
+      throw FormatException(
+        message is String && message.isNotEmpty
+            ? message
+            : 'Backend request failed (HTTP $statusCode).',
+      );
+    }
+    return response;
+  }
 
   Future<String> sendEmailVerificationCode({required String email}) async {
     final normalizedEmail = email.trim();
@@ -96,16 +210,25 @@ class AppwriteService {
       throw const FormatException('Enter the code sent to your email.');
     }
 
+    var hasSession = false;
     try {
-      await account.createSession(userId: userId, secret: normalizedCode);
+      await account.get();
+      hasSession = true;
     } on AppwriteException catch (error) {
-      if (error.code == 401 ||
-          error.type?.toLowerCase().contains('invalid_token') == true) {
-        throw const FormatException(
-          'Incorrect OTP. Please check the code and try again.',
-        );
+      if (error.code != 401) rethrow;
+    }
+    if (!hasSession) {
+      try {
+        await account.createSession(userId: userId, secret: normalizedCode);
+      } on AppwriteException catch (error) {
+        if (error.code == 401 ||
+            error.type?.toLowerCase().contains('invalid_token') == true) {
+          throw const FormatException(
+            'Incorrect OTP. Please check the code and try again.',
+          );
+        }
+        rethrow;
       }
-      rethrow;
     }
     var user = await account.get();
     final normalizedName = name?.trim() ?? '';

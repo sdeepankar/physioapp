@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../core/app_theme.dart';
 import '../models/care_service.dart';
 import '../core/app_settings.dart';
@@ -6,7 +7,12 @@ import '../models/booking.dart';
 import 'booking_history_screen.dart';
 
 class ServiceSearchPage extends StatefulWidget {
-  const ServiceSearchPage({super.key, required this.onServiceTap});
+  const ServiceSearchPage({
+    super.key,
+    required this.services,
+    required this.onServiceTap,
+  });
+  final List<CareService> services;
   final ValueChanged<CareService> onServiceTap;
   @override
   State<ServiceSearchPage> createState() => _ServiceSearchPageState();
@@ -16,7 +22,7 @@ class _ServiceSearchPageState extends State<ServiceSearchPage> {
   String _query = '';
   @override
   Widget build(BuildContext context) {
-    final matches = careServices
+    final matches = widget.services
         .where(
           (service) => '${service.name} ${service.subtitle}'
               .toLowerCase()
@@ -109,7 +115,7 @@ class NotificationsPage extends StatelessWidget {
     required this.onBookingCancelled,
   });
   final List<Booking> bookings;
-  final ValueChanged<String> onBookingCancelled;
+  final Future<void> Function(String) onBookingCancelled;
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -161,7 +167,7 @@ class NotificationsPage extends StatelessWidget {
                     child: Icon(Icons.event_available_outlined, color: appTeal),
                   ),
                   title: Text(
-                    '${booking.service.name} booking confirmed',
+                    '${booking.service.name} · ${bookingStatusLabel(booking.status)}',
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                   subtitle: Text(
@@ -182,4 +188,3 @@ class NotificationsPage extends StatelessWidget {
           ),
   );
 }
-

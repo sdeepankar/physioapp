@@ -1,0 +1,9 @@
+name,description,basePrice,priceUnit,category,isActive,sortOrder
+Home Nursing,Care at your home,499,per_visit,Nursing,true,1
+Physiotherapy,Expert recovery care,699,per_visit,Rehabilitation,true,2
+Caregiver,Support for daily needs,399,per_visit,Caregiving,true,3
+Elder Care,Comfort for seniors,599,per_visit,Elder Care,true,4
+Lab Sample,Tests from home,199,per_visit,Diagnostics,true,5
+Doctor Visit,Consult at home,799,per_visit,Doctor Consultation,true,6
+Health Check,Stay on top of health,999,per_visit,Preventive Care,true,7
+Ambulance,Emergency assistance,999,from,Emergency,true,8

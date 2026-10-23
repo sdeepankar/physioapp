@@ -60,8 +60,17 @@ flutter run -d <device-id> --flavor admin --target lib/main_admin.dart
 
 1. Open the project root folder in VS Code.
 2. Connect a phone or start an emulator, then select it in the status bar.
-3. Open **Run and Debug** and choose **Deep Care Client**, **Deep Care Admin**, or **Deep Care Provider**.
-4. Press **F5**. The matching launch configuration is in [`.vscode/launch.json`](.vscode/launch.json).
+3. Copy the tracked VS Code templates into the workspace folder. In Windows PowerShell, run:
+
+   ```powershell
+   New-Item -ItemType Directory -Force .vscode | Out-Null
+   Copy-Item tooling/vscode/* .vscode/ -Force
+   ```
+
+   In macOS/Linux, run `mkdir -p .vscode && cp tooling/vscode/* .vscode/`.
+4. Open **Run and Debug**, choose **Deep Care Client**, **Deep Care Admin**, or **Deep Care Provider**, then press **F5**.
+
+The templates are stored in [`tooling/vscode/`](tooling/vscode/). VS Code requires the local copy to be in `.vscode/`. The `.vscode/` folder is ignored by Git so local editor preferences are not committed. Flutter CLI builds do not use these files; run/build commands above work without copying them.
 
 ## Build Android APKs
 
@@ -137,5 +146,5 @@ lib/
   services/                    # Shared Appwrite access/authentication
 functions/registered-email-otp/ # Appwrite backend function source
 android/app/build.gradle.kts   # Android flavor names, IDs, and app labels
-.vscode/launch.json            # VS Code launch profiles
+tooling/vscode/                # Tracked VS Code launch/settings templates
 ```

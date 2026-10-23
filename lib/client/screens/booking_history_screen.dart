@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../core/app_theme.dart';
+import '../../core/app_theme.dart';
 import '../models/booking.dart';
-import '../widgets/shared_widgets.dart';
+import '../widgets/client_widgets.dart';
 import '../core/app_settings.dart';
 
 class BookingsPage extends StatelessWidget {

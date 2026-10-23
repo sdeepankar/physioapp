@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Deep Care Admin",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_admin.dart",
+      "args": ["--flavor", "admin"]
+    },
+    {
+      "name": "Deep Care Client",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_client.dart",
+      "args": ["--flavor", "client"]
+    },
+    {
+      "name": "Deep Care Provider",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_provider.dart",
+      "args": ["--flavor", "provider"]
+    }
+  ]
+}

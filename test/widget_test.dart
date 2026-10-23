@@ -10,13 +10,13 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:physio/models/care_service.dart';
-import 'package:physio/models/patient_profile.dart';
-import 'package:physio/models/saved_address.dart';
-import 'package:physio/screens/booking_flow_screen.dart';
-import 'package:physio/screens/profile_screen.dart';
-import 'package:physio/screens/onboarding_screen.dart';
-import 'package:physio/core/app_settings.dart';
+import 'package:physio/client/models/care_service.dart';
+import 'package:physio/client/models/patient_profile.dart';
+import 'package:physio/client/models/saved_address.dart';
+import 'package:physio/client/screens/booking_flow_screen.dart';
+import 'package:physio/client/screens/profile_screen.dart';
+import 'package:physio/client/screens/onboarding_screen.dart';
+import 'package:physio/client/core/app_settings.dart';
 
 void main() {
   testWidgets('Material app smoke test', (WidgetTester tester) async {

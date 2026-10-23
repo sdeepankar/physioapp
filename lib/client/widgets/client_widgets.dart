@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../core/app_theme.dart';
+import '../../core/app_theme.dart';
 import '../models/booking.dart';
 import '../models/care_service.dart';
 

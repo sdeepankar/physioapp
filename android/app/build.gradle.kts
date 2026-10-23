@@ -14,6 +14,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    buildFeatures {
+        resValues = true
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.physio"
@@ -27,6 +31,24 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    flavorDimensions += "audience"
+    productFlavors {
+        create("client") {
+            dimension = "audience"
+            resValue("string", "app_name", "Deep Care")
+        }
+        create("admin") {
+            dimension = "audience"
+            applicationIdSuffix = ".admin"
+            resValue("string", "app_name", "Deep Care Admin")
+        }
+        create("provider") {
+            dimension = "audience"
+            applicationIdSuffix = ".provider"
+            resValue("string", "app_name", "Deep Care Provider")
+        }
     }
 
     buildTypes {

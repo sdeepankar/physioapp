@@ -102,4 +102,3 @@ Future<CurrentPlace> locateCurrentPlace() async {
     );
   }
 }
-

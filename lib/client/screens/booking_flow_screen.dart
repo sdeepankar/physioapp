@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../core/app_theme.dart';
+import '../../core/app_theme.dart';
 import '../models/saved_address.dart';
 import '../models/booking.dart';
 import '../models/care_service.dart';
-import '../widgets/shared_widgets.dart';
+import '../widgets/client_widgets.dart';
 import '../core/app_settings.dart';
 import '../services/location_service.dart';
 

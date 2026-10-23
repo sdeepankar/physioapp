@@ -4,9 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_settings.dart';
-import '../core/app_theme.dart';
+import '../../core/app_theme.dart';
 import '../models/patient_profile.dart';
-import '../services/appwrite_service.dart';
+import '../../services/appwrite_service.dart';
+import '../services/appwrite_client_service.dart';
 import 'patient_shell.dart';
 
 class BrandedSplashScreen extends StatefulWidget {
@@ -489,7 +490,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           await preferences.setInt(profileAgeKey, age);
         }
       }
-      await AppwriteService.instance.syncClientProfile(
+      await AppwriteClientService.instance.syncClientProfile(
         PatientProfile(
           name: name,
           phone: phone,

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../core/appwrite_config.dart';
-import '../core/app_theme.dart';
+import '../../core/appwrite_config.dart';
+import '../../core/app_theme.dart';
 import '../core/app_settings.dart';
-import '../services/appwrite_service.dart';
+import '../../services/appwrite_service.dart';
 
 import 'package:geolocator/geolocator.dart';
 

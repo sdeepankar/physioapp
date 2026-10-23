@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../core/app_theme.dart';
+import '../../core/app_theme.dart';
 import '../models/booking.dart';
 import '../models/care_service.dart';
 import '../services/location_service.dart';
-import '../widgets/shared_widgets.dart';
+import '../widgets/client_widgets.dart';
 import '../core/app_settings.dart';
 
 class HomePage extends StatelessWidget {

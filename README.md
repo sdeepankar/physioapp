@@ -1,80 +1,141 @@
 # Deep Care
 
-Deep Care is a Flutter app for booking at-home healthcare services. The client build uses Appwrite email OTP and one Appwrite Function, `registered-email-otp`, for both login email checks and profile, service, and order data. Provider and admin workflows are exposed by that API, while their separate app interfaces are not part of this client build yet.
+Deep Care is one Flutter project that builds three separate Android apps: **Client**, **Admin**, and **Provider**. They share the Appwrite project and common configuration/theme, while keeping app-specific screens, models, and services in their own folders.
 
-## First-time setup
+## Requirements
 
-### Requirements
+- Flutter SDK and Dart, with `flutter` available on your `PATH`.
+- Android Studio and Android SDK/platform tools. Flutter/Gradle downloads the required Gradle components during the first build.
+- Java 17 or newer. Android Studio's bundled Java runtime is suitable.
+- For a physical Android phone: enable Developer options and USB debugging, connect the phone, and accept the USB debugging prompt. An Android emulator also works.
+- Optional: VS Code with the Flutter and Dart extensions.
 
-- Install the Flutter SDK and add `flutter` to your `PATH`.
-- Install Android Studio with the Android SDK and platform tools. Android Studio also provides the Java runtime used by Android builds; you do not need to install or configure Kotlin or Gradle separately.
-- For a physical Android phone, enable Developer options and USB debugging, connect it by USB, and accept the debugging prompt. An Android emulator also works.
-- Install the Flutter and Dart extensions in VS Code if you use VS Code.
+Check the local setup and accept Android SDK licenses if requested:
 
-### Get the code and run it
+```shell
+flutter doctor -v
+flutter doctor --android-licenses
+```
 
-```bash
+## Get the project
+
+```shell
 git clone https://github.com/sdeepankar/physioapp.git
 cd physioapp
-flutter doctor -v
 flutter pub get
 flutter devices
-flutter run
 ```
 
-On the first Android run, Flutter/Gradle downloads the required build components automatically. In VS Code, open the cloned `physioapp` folder, choose a device from the status bar, and press **F5** (or run `flutter run` in the terminal). If `flutter doctor -v` reports a missing Android license, run `flutter doctor --android-licenses` and accept the licenses.
+Open the `physioapp` project root in your IDE. Do not copy `android/local.properties` from another computer; it contains machine-specific SDK paths. Keep the project and Flutter package cache on the same drive when possible.
 
-Keep the project and Flutter's package cache on the same drive when possible. This avoids Android Gradle errors caused by moving generated build files across drive roots. Do not copy `local.properties` from another computer; Flutter creates machine-specific Android SDK paths for the current machine when resolving packages/building.
+## Apps and flavors
 
-## Current progress
+The Android product flavors are defined in [`android/app/build.gradle.kts`](android/app/build.gradle.kts). Each app has its own application ID and display name:
 
-- Branded launch screen with a white background and the supplied Deep Care mark as the Android app icon.
-- Email OTP sign-in/sign-up through Appwrite, followed by profile synchronization to `user_profiles`.
-- Profile editing and a Log out action. Logging out removes the saved name and number and returns to the profile form.
-- Automatic location lookup after the profile form and on later app launches. The home screen displays the detected area, city, state, and PIN code. Location permission is requested from Android when needed.
-- Service address form prefilled from the home location, with a **Use my current location** action to fetch the details again. The exact house or street address remains a separate field.
-- Service browsing and search from active `services` rows, appointment date and time selection, order creation in `orders`, status history in `order_events`, My Bookings, booking details, and server-side cancellation.
-- The home screen's **Your next visit** card selects the nearest future booking, shows its service, date/time, and locality, and opens the booking details. With no upcoming appointment, it links to service browsing.
-- UPI is a demo preview. Order payment status stays `pending`; the app does not open a UPI app or charge a payment.
-- Profile area with personal details, bookings, address book, payment methods, settings, and help and support. Medical history, documents, family members, payment methods, and help and support still need their real flows.
-- Settings for the in-app booking badge, app-wide text size, reduced motion, location permissions, and clearing the locally saved profile. Settings are stored on the device.
-- English interface and Android app display name **Deep Care**.
+| App | Flavor | Entrypoint | Android application ID |
+| --- | --- | --- | --- |
+| Client | `client` | `lib/main_client.dart` | `com.example.physio` |
+| Admin | `admin` | `lib/main_admin.dart` | `com.example.physio.admin` |
+| Provider | `provider` | `lib/main_provider.dart` | `com.example.physio.provider` |
 
-## Run and build
+The root entrypoints delegate to the app implementations under `lib/client/`, `lib/admin/`, and `lib/provider/`. Shared code is under `lib/core/` and `lib/services/`.
 
-To run after the first-time setup:
+## Run on a device or emulator
 
-```bash
-flutter run
+From the project root, run one app at a time:
+
+```shell
+flutter run --flavor client --target lib/main_client.dart
+flutter run --flavor admin --target lib/main_admin.dart
+flutter run --flavor provider --target lib/main_provider.dart
 ```
 
-To build a release APK:
+To choose a specific connected device, first run `flutter devices`, then add `-d <device-id>` to a command, for example:
 
-```bash
-flutter build apk --release
+```shell
+flutter run -d <device-id> --flavor admin --target lib/main_admin.dart
 ```
 
-The APK is normally written to `build/app/outputs/flutter-apk/app-release.apk`.
+### Run from VS Code
 
-Android location permissions are declared in `android/app/src/main/AndroidManifest.xml`. On first launch, allow location access for automatic location lookup. If access is declined, the home location can be retried from the address selector, and the Service address page also has its own location button. Area and PIN results depend on the device's location services and geocoding results.
+1. Open the project root folder in VS Code.
+2. Connect a phone or start an emulator, then select it in the status bar.
+3. Open **Run and Debug** and choose **Deep Care Client**, **Deep Care Admin**, or **Deep Care Provider**.
+4. Press **F5**. The matching launch configuration is in [`.vscode/launch.json`](.vscode/launch.json).
 
-## Local data and integrations
+## Build Android APKs
 
-The user profile and service/order data use Appwrite after the `registered-email-otp` Function has been redeployed with the combined source in `functions/registered-email-otp`. Saved addresses, medical history, and app settings remain on-device because the current five-table schema has no tables/columns for them. The UPI screen remains a demo and does not process or verify payment.
+Build debug APKs for local installation:
 
-Before launch, the app still needs:
+```shell
+flutter build apk --debug --flavor client --target lib/main_client.dart
+flutter build apk --debug --flavor admin --target lib/main_admin.dart
+flutter build apk --debug --flavor provider --target lib/main_provider.dart
+```
 
-- Redeploy and configure the existing `registered-email-otp` Function as described in `functions/registered-email-otp/README.md`; verify its database and table IDs against the Appwrite Console.
-- Build the provider and admin app interfaces against the role-checked API routes.
-- Provider onboarding, verification, availability, and booking management interfaces.
-- A real UPI payment provider and server-side payment confirmation.
-- Push or messaging notifications for booking status and reminders.
-- Appropriate backend tables for saved addresses and medical history, with access controls.
-- Hindi translations and a complete help/support contact flow.
+Build release APKs:
 
-## Project structure
+```shell
+flutter build apk --release --flavor client --target lib/main_client.dart
+flutter build apk --release --flavor admin --target lib/main_admin.dart
+flutter build apk --release --flavor provider --target lib/main_provider.dart
+```
 
-- `lib/main.dart` — current Flutter UI and client-side demo flows.
-- `assets/images/` — app branding and launcher icon source.
-- `android/app/src/main/` — Android app label, launcher resources, location permissions, and launch-screen theme.
-- `pubspec.yaml` — Flutter dependencies and launcher icon configuration.
+APK files are written to `build/app/outputs/flutter-apk/` with flavor-specific names, such as `app-client-debug.apk`, `app-admin-release.apk`, and `app-provider-release.apk`.
+
+Install a debug APK on a connected device using Android Debug Bridge:
+
+```shell
+adb install -r build/app/outputs/flutter-apk/app-client-debug.apk
+adb install -r build/app/outputs/flutter-apk/app-admin-debug.apk
+adb install -r build/app/outputs/flutter-apk/app-provider-debug.apk
+```
+
+The current Gradle configuration signs release builds with the debug key to simplify local builds. Before distributing apps, configure a private release keystore and signing configuration in `android/app/build.gradle.kts`; do not publish a production app signed with the debug key.
+
+## Build Android App Bundles
+
+For Google Play distribution, build a separate Android App Bundle for each flavor:
+
+```shell
+flutter build appbundle --release --flavor client --target lib/main_client.dart
+flutter build appbundle --release --flavor admin --target lib/main_admin.dart
+flutter build appbundle --release --flavor provider --target lib/main_provider.dart
+```
+
+Bundles are written to `build/app/outputs/bundle/`.
+
+## Appwrite configuration
+
+The shared Appwrite endpoint, project, database, and table IDs are configured in [`lib/core/appwrite_config.dart`](lib/core/appwrite_config.dart). The apps use the existing `registered-email-otp` Function for backend operations. Deploy and configure that Function using [`functions/registered-email-otp/README.md`](functions/registered-email-otp/README.md), then confirm its IDs and permissions against the Appwrite Console.
+
+Current app data uses the Appwrite `user_profiles`, `services`, `provider_profiles`, `orders`, and `order_events` tables. Saved addresses and app preferences are stored on-device. The UPI payment page is a demo and does not charge or verify payments.
+
+## Location permissions
+
+Android location permissions are declared in `android/app/src/main/AndroidManifest.xml`. Allow location access when prompted to use automatic location lookup. If permission is declined, location can be retried from the address selector or Service Address page. The resulting area and PIN depend on device location and geocoding availability.
+
+## Current implementation status
+
+- Client: email OTP account access, profile sync/editing, service browsing, booking creation/history/details, booking cancellation, location lookup, settings, and support UI.
+- Admin: review provider profiles and assign orders to providers.
+- Provider: flavor and app scaffold are in place; sign-in, availability, and assigned-booking workflows remain to be implemented.
+- Payment: UPI is a non-transactional demo; a payment provider and server-side confirmation are still needed.
+- Other future work: booking notifications/reminders, saved-address and medical-history backend storage with access controls, Hindi translations, and a complete support contact flow.
+
+## Project layout
+
+```text
+lib/
+  main_client.dart             # Client flavor entrypoint
+  main_admin.dart              # Admin flavor entrypoint
+  main_provider.dart           # Provider flavor entrypoint
+  client/                      # Client screens, models, services, settings, widgets
+  admin/                       # Admin app and screens
+  provider/                    # Provider app scaffold
+  core/                        # Shared Appwrite config and theme
+  services/                    # Shared Appwrite access/authentication
+functions/registered-email-otp/ # Appwrite backend function source
+android/app/build.gradle.kts   # Android flavor names, IDs, and app labels
+.vscode/launch.json            # VS Code launch profiles
+```

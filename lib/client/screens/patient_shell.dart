@@ -8,7 +8,8 @@ import '../core/app_settings.dart';
 import '../models/booking.dart';
 import '../models/care_service.dart';
 import '../models/patient_profile.dart';
-import '../services/appwrite_service.dart';
+import '../../services/appwrite_service.dart';
+import '../services/appwrite_client_service.dart';
 import '../services/location_service.dart';
 import 'booking_flow_screen.dart';
 import 'booking_history_screen.dart';
@@ -239,7 +240,9 @@ class _PatientShellState extends State<PatientShell> {
   }
 
   Future<Booking> _createBooking(Booking booking) async {
-    final savedBooking = await AppwriteService.instance.createOrder(booking);
+    final savedBooking = await AppwriteClientService.instance.createOrder(
+      booking,
+    );
     setState(() {
       _bookings.insert(0, savedBooking);
       _hasUnreadNotifications = true;
@@ -249,7 +252,7 @@ class _PatientShellState extends State<PatientShell> {
   }
 
   Future<void> _cancelBooking(String bookingId) async {
-    await AppwriteService.instance.cancelClientOrder(bookingId);
+    await AppwriteClientService.instance.cancelClientOrder(bookingId);
     setState(() {
       final index = _bookings.indexWhere((booking) => booking.id == bookingId);
       if (index >= 0) {
@@ -271,9 +274,10 @@ class _PatientShellState extends State<PatientShell> {
 
   Future<void> _loadBackendData() async {
     try {
-      await AppwriteService.instance.syncClientProfile(_profile);
-      final services = await AppwriteService.instance.listActiveServices();
-      final bookings = await AppwriteService.instance.listClientOrders();
+      await AppwriteClientService.instance.syncClientProfile(_profile);
+      final services = await AppwriteClientService.instance
+          .listActiveServices();
+      final bookings = await AppwriteClientService.instance.listClientOrders();
       if (!mounted) return;
       setState(() {
         _services = services;
@@ -336,7 +340,7 @@ class _PatientShellState extends State<PatientShell> {
               profile.emergencyContact,
             );
             try {
-              await AppwriteService.instance.syncClientProfile(profile);
+              await AppwriteClientService.instance.syncClientProfile(profile);
             } catch (error) {
               if (mounted) {
                 final message = error is FormatException

@@ -2,6 +2,16 @@
 
 Deep Care is one Flutter project that builds three separate Android apps: **Client**, **Admin**, and **Provider**. They share the Appwrite project and common configuration/theme, while keeping app-specific screens, models, and services in their own folders.
 
+> [!IMPORTANT]
+> **To use the VS Code launch profiles, copy the contents of `tooling/vscode/` into `.vscode/` after cloning.** From the project root, run:
+>
+> ```powershell
+> New-Item -ItemType Directory -Force .vscode | Out-Null
+> Copy-Item tooling/vscode/* .vscode/ -Force
+> ```
+>
+> This puts `launch.json` and `settings.json` where VS Code expects them. Copy the files inside `tooling/vscode/`, not the `vscode` folder itself. Flutter CLI builds do not need this step.
+
 ## Requirements
 
 - Flutter SDK and Dart, with `flutter` available on your `PATH`.
@@ -60,17 +70,17 @@ flutter run -d <device-id> --flavor admin --target lib/main_admin.dart
 
 1. Open the project root folder in VS Code.
 2. Connect a phone or start an emulator, then select it in the status bar.
-3. Copy the tracked VS Code templates into the workspace folder. In Windows PowerShell, run:
+3. Copy the **contents** of `tooling/vscode/` (the `launch.json` and `settings.json` files) into the project's `.vscode/` folder. Do this once after cloning, or again when the templates change. In Windows PowerShell, run this from the project root:
 
    ```powershell
    New-Item -ItemType Directory -Force .vscode | Out-Null
    Copy-Item tooling/vscode/* .vscode/ -Force
    ```
 
-   In macOS/Linux, run `mkdir -p .vscode && cp tooling/vscode/* .vscode/`.
+   This places the files at `.vscode/launch.json` and `.vscode/settings.json`; don't copy the `vscode` directory itself as a nested folder. On macOS/Linux, run `mkdir -p .vscode && cp tooling/vscode/* .vscode/`.
 4. Open **Run and Debug**, choose **Deep Care Client**, **Deep Care Admin**, or **Deep Care Provider**, then press **F5**.
 
-The templates are stored in [`tooling/vscode/`](tooling/vscode/). VS Code requires the local copy to be in `.vscode/`. The `.vscode/` folder is ignored by Git so local editor preferences are not committed. Flutter CLI builds do not use these files; run/build commands above work without copying them.
+The tracked templates live in [`tooling/vscode/`](tooling/vscode/), while VS Code reads the local copies from `.vscode/`. The `.vscode/` folder is ignored by Git so local editor preferences are not committed. Flutter CLI builds do not use either folder; run/build commands above work without copying the templates.
 
 ## Build Android APKs
 

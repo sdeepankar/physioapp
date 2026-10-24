@@ -509,7 +509,7 @@ class _IssueReportSheetState extends State<_IssueReportSheet> {
     border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
   );
 
-  void _reviewIssue() {
+  Future<void> _reviewIssue() async {
     if (_formKey.currentState?.validate() != true) return;
     final details = <String>[
       'Issue: $_selectedIssue',
@@ -518,23 +518,23 @@ class _IssueReportSheetState extends State<_IssueReportSheet> {
       if (_descriptionController.text.trim().isNotEmpty)
         'Description: ${_descriptionController.text.trim()}',
     ].join('\n\n');
-    showDialog<void>(
+    final closeSupport = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Review your issue'),
         content: Text(
           '$details\n\nYour issue has not been sent. Support requests are not available in this prototype yet.',
         ),
         actions: [
           FilledButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              Navigator.of(this.context).pop();
-            },
+            onPressed: () => Navigator.of(dialogContext).pop(true),
             child: const Text('Done'),
           ),
         ],
       ),
     );
+    if (closeSupport == true && mounted) {
+      Navigator.of(context).pop();
+    }
   }
 }

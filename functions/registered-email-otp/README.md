@@ -63,8 +63,28 @@ an existing email it sends a code and returns `{ "registered": true, "userId":
 
 All other routes require an authenticated Appwrite session. Client, provider,
 and admin permissions are checked against each user's `user_profiles.role`.
-Provider/admin workflows are available in this API even though those separate
-Flutter app interfaces are not part of the current client build.
+
+The provider app uses these routes:
+
+- `GET /provider/status` reads the signed-in account's role and provider profile.
+- `POST /provider/apply` submits or resubmits provider details, selected active
+  services, and service areas. It creates or updates the user profile with the
+  `provider` role and sets provider verification to `pending` and availability
+  to `false`. A client account applying this way becomes a provider account;
+  use separate Appwrite accounts if the same person needs distinct client and
+  provider logins.
+- Admin approves or rejects the submitted profile in the Admin app.
+- `POST /provider/availability` changes availability only after approval.
+- `GET /provider/orders` returns bookings assigned to the verified provider,
+  including the client's name and phone from `user_profiles` for those assigned
+  bookings.
+- `POST /provider/orders/{orderId}/accept`, `reject`, `out-for-service`,
+  `start`, and `complete` update the assigned booking and record order events.
+  A declined booking is offered to another matching available provider; if
+  none is available, it returns to admin for manual assignment.
+
+Redeploy this existing function after changing `src/main.js`. Do not create a
+separate function for the provider app.
 
 Because function execution access is `Any`, only the `/` login route is
 unauthenticated; it checks the registered email before sending an OTP. Protect

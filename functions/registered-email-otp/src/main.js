@@ -41,6 +41,52 @@ async function handleCareApi({ req, res, error, path }) {
     const method = req.method.toUpperCase();
     const body = req.bodyJson && typeof req.bodyJson === 'object' ? req.bodyJson : {};
 
+    if (method === 'GET' && path === '/provider/status') {
+      const provider = role === 'provider' ? await findProvider(tables, actorId) : null;
+      const userProfile = profile ? { name: profile.name ?? '', phone: profile.phone ?? '' } : null;
+      return res.json({ role, providerProfile: provider, userProfile });
+    }
+
+    if (method === 'POST' && path === '/provider/apply') {
+      if (role && !['client', 'provider'].includes(role)) {
+        return res.json({ message: 'This account cannot apply for provider access.' }, 403);
+      }
+      const name = cleanText(body.name, 120) || cleanText(user.name, 120);
+      const phone = cleanText(body.phone, 32) || cleanText(user.phone, 32);
+      const businessName = cleanText(body.businessName, 120);
+      const serviceIds = uniqueStrings(body.serviceIds, 255);
+      const serviceAreas = uniqueStrings(body.serviceAreas, 100);
+      if (!name || !phone || !businessName || !serviceIds.length || !serviceAreas.length) {
+        return res.json({ message: 'Name, phone, business name, at least one service, and one service area are required.' }, 400);
+      }
+      const activeServices = await listRows(tables, 'services');
+      const activeServiceIds = new Set(activeServices.filter((service) => service.isActive === true).map((service) => service.$id));
+      if (serviceIds.some((serviceId) => !activeServiceIds.has(serviceId))) {
+        return res.json({ message: 'Choose only currently active services.' }, 400);
+      }
+
+      const profileData = { userId: actorId, name, phone, role: 'provider' };
+      if (profile) {
+        await tables.updateRow({ databaseId, tableId: tableIds.profiles, rowId: profile.$id, data: profileData });
+      } else {
+        await tables.createRow({ databaseId, tableId: tableIds.profiles, rowId: ID.unique(), data: profileData });
+      }
+
+      const existingProvider = await findProvider(tables, actorId);
+      const providerData = {
+        userId: actorId,
+        businessName,
+        serviceIds,
+        serviceAreas,
+        verificationStatus: 'pending',
+        isAvailable: false,
+      };
+      const provider = existingProvider
+        ? await tables.updateRow({ databaseId, tableId: tableIds.providers, rowId: existingProvider.$id, data: providerData })
+        : await tables.createRow({ databaseId, tableId: tableIds.providers, rowId: ID.unique(), data: { ...providerData, completedOrderCount: 0 } });
+      return res.json({ row: provider });
+    }
+
     if (method === 'GET' && path === '/services') {
       const rows = (await listRows(tables, 'services'))
         .filter((row) => row.isActive === true)
@@ -137,14 +183,30 @@ async function handleCareApi({ req, res, error, path }) {
 
     if (method === 'GET' && path === '/provider/orders') {
       if (role !== 'provider') return res.json({ message: 'Provider access is required.' }, 403);
+      const provider = await findProvider(tables, actorId);
+      if (!provider || provider.verificationStatus !== 'verified') {
+        return res.json({ message: 'Your provider profile must be verified before viewing assigned bookings.' }, 403);
+      }
       const rows = await listRows(tables, 'orders', [Query.equal('assignedProviderId', actorId), Query.limit(100)]);
       rows.sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
-      return res.json({ rows });
+      const enrichedRows = await Promise.all(rows.map(async (order) => {
+        const client = await findProfile(tables, order.clientUserId);
+        return {
+          ...order,
+          clientName: client?.name ?? '',
+          clientPhone: client?.phone ?? '',
+        };
+      }));
+      return res.json({ rows: enrichedRows });
     }
 
     const providerAction = path.match(/^\/provider\/orders\/([^/]+)\/(accept|reject|out-for-service|start|complete)$/);
     if (method === 'POST' && providerAction) {
       if (role !== 'provider') return res.json({ message: 'Provider access is required.' }, 403);
+      const provider = await findProvider(tables, actorId);
+      if (!provider || provider.verificationStatus !== 'verified') {
+        return res.json({ message: 'Your provider profile must be verified before updating bookings.' }, 403);
+      }
       return providerOrderAction(tables, actorId, providerAction[1], providerAction[2], body, res);
     }
 
@@ -408,7 +470,8 @@ async function chooseProvider(tables, order, excludedProviderId = '') {
   ]);
   const candidates = providers.filter((provider) => provider.userId !== excludedProviderId && provider.verificationStatus === 'verified' && provider.isAvailable === true &&
     Array.isArray(provider.serviceIds) && provider.serviceIds.includes(order.serviceId) &&
-    areaMatches(provider.serviceAreas, order));
+    areaMatches(provider.serviceAreas, order) &&
+    !hasScheduleConflictInOrders(orders, provider.userId, order));
   candidates.sort((a, b) => activeOrderCount(orders, a.userId) - activeOrderCount(orders, b.userId));
   return candidates[0] ?? null;
 }
@@ -426,13 +489,60 @@ function activeOrderCount(orders, providerId) {
   return orders.filter((order) => order.assignedProviderId === providerId && ['assigned', 'accepted', 'out_for_service', 'in_progress'].includes(order.status)).length;
 }
 
+function hasScheduleConflictInOrders(orders, providerId, requestedOrder) {
+  const requestedTime = Date.parse(requestedOrder.scheduledAt);
+  if (!Number.isFinite(requestedTime)) return false;
+  const activeStatuses = ['assigned', 'accepted', 'out_for_service', 'in_progress'];
+  return orders.some((order) => order.$id !== requestedOrder.$id &&
+    order.assignedProviderId === providerId && activeStatuses.includes(order.status) &&
+    Date.parse(order.scheduledAt) === requestedTime);
+}
+
+async function hasScheduleConflict(tables, providerId, requestedOrder) {
+  const bookings = await listRows(tables, 'orders', [
+    Query.equal('assignedProviderId', providerId),
+    Query.limit(100),
+  ]);
+  return hasScheduleConflictInOrders(bookings, providerId, requestedOrder);
+}
+
 async function adminRoute(tables, actorId, method, path, body, res) {
+  if (method === 'GET' && path === '/admin/profile') {
+    const profile = await findProfile(tables, actorId);
+    return res.json({ row: profile ? { name: profile.name ?? '' } : null });
+  }
+
+  if (method === 'POST' && path === '/admin/profile') {
+    const name = cleanText(body.name, 120);
+    if (!name) return res.json({ message: 'Enter your name.' }, 400);
+    const profile = await findProfile(tables, actorId);
+    if (!profile) return res.json({ message: 'Admin profile not found.' }, 404);
+    const row = await tables.updateRow({
+      databaseId,
+      tableId: tableIds.profiles,
+      rowId: profile.$id,
+      data: { name },
+    });
+    return res.json({ row: { name: row.name ?? name } });
+  }
+
   if (method === 'GET' && path === '/admin/orders') {
     const rows = await listRows(tables, 'orders');
     rows.sort((a, b) => new Date(b.$createdAt) - new Date(a.$createdAt));
+    const enrichedRows = await Promise.all(rows.map(async (order) => {
+      const client = await findProfile(tables, order.clientUserId);
+      return { ...order, clientName: client?.name ?? '' };
+    }));
+    return res.json({ rows: enrichedRows });
+  }
+  if (method === 'GET' && path === '/admin/providers') {
+    const providers = await listRows(tables, 'providers', [Query.limit(100)]);
+    const rows = await Promise.all(providers.map(async (provider) => {
+      const profile = await findProfile(tables, provider.userId);
+      return { ...provider, name: profile?.name ?? '' };
+    }));
     return res.json({ rows });
   }
-  if (method === 'GET' && path === '/admin/providers') return res.json({ rows: await listRows(tables, 'providers', [Query.limit(100)]) });
   if (method === 'GET' && path === '/admin/services') {
     const rows = await listRows(tables, 'services');
     rows.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
@@ -482,8 +592,11 @@ async function adminRoute(tables, actorId, method, path, body, res) {
       return res.json({ message: 'Only unassigned or currently assigned orders can be assigned.' }, 409);
     }
     const provider = await findProvider(tables, cleanText(body.providerUserId, 255));
-    if (!provider || provider.verificationStatus !== 'verified' || provider.isAvailable !== true || !Array.isArray(provider.serviceIds) || !provider.serviceIds.includes(order.serviceId) || !areaMatches(provider.serviceAreas, order)) {
-      return res.json({ message: 'Select a verified, available provider who offers this service in the client’s area.' }, 400);
+    if (!provider || provider.verificationStatus !== 'verified') {
+      return res.json({ message: 'Select an approved provider.' }, 400);
+    }
+    if (await hasScheduleConflict(tables, provider.userId, order)) {
+      return res.json({ message: 'This provider already has an active booking scheduled for this time.' }, 409);
     }
     const previousStatus = order.status;
     const updated = await changeOrder(tables, order, { assignedProviderId: provider.userId, assignedAt: new Date().toISOString(), status: 'assigned', createdByAdminId: actorId }, {
@@ -510,8 +623,9 @@ async function adminRoute(tables, actorId, method, path, body, res) {
     if (!['verified', 'rejected', 'suspended'].includes(status)) return res.json({ message: 'Invalid verification status.' }, 400);
     const provider = await findProvider(tables, verifyMatch[1]);
     if (!provider) return res.json({ message: 'Provider profile not found.' }, 404);
-    const data = { verificationStatus: status };
-    if (status !== 'verified') data.isAvailable = false;
+    // Approval makes the provider eligible for manual and automatic assignment.
+    // Rejection or suspension always removes them from assignment candidates.
+    const data = { verificationStatus: status, isAvailable: status === 'verified' };
     return res.json({ row: await tables.updateRow({ databaseId, tableId: tableIds.providers, rowId: provider.$id, data }) });
   }
 

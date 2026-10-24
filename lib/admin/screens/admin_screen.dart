@@ -201,26 +201,84 @@ class AdminDashboard extends StatefulWidget {
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-class _AdminDashboardState extends State<AdminDashboard>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 2, vsync: this);
+class _AdminDashboardState extends State<AdminDashboard> {
+  int _selectedIndex = 2;
+  bool _showNotificationsPage = false;
   List<Map<String, dynamic>> _providers = [];
   List<Map<String, dynamic>> _orders = [];
   List<Map<String, dynamic>> _services = [];
   bool _loading = true;
   bool _busy = false;
   String? _error;
+  String _adminName = 'Admin';
+  String? _adminEmail;
+  bool _nameSetupPromptShown = false;
 
   @override
   void initState() {
     super.initState();
+    _loadAdminName();
     _load();
   }
 
-  @override
-  void dispose() {
-    _tabs.dispose();
-    super.dispose();
+  Future<void> _loadAdminName() async {
+    String? name;
+    String? email;
+    try {
+      name = await AppwriteService.instance.getAdminDisplayName();
+    } on Object {
+      // Fall back to the Appwrite account name if no profile name is stored.
+    }
+    try {
+      final user = await AppwriteService.instance.getCurrentUser();
+      email = user.email.trim();
+      if (name == null || name.isEmpty) name = user.name.trim();
+    } on Object {
+      // Keep the friendly Admin fallback if the account name is unavailable.
+    }
+    final displayName = name;
+    if (mounted) {
+      setState(() {
+        _adminEmail = email;
+        if (displayName != null && displayName.isNotEmpty) {
+          _adminName = displayName;
+        }
+      });
+    }
+    if (mounted &&
+        (displayName == null || displayName.isEmpty) &&
+        !_nameSetupPromptShown) {
+      _nameSetupPromptShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _editAdminName();
+      });
+    }
+  }
+
+  Future<void> _editAdminName() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => _AdminNameDialog(
+        initialName: _adminName == 'Admin' ? '' : _adminName,
+        initials: _adminInitials,
+        email: _adminEmail,
+      ),
+    );
+    if (name == null || name.trim().isEmpty) return;
+    try {
+      final savedName = await AppwriteService.instance.updateAdminDisplayName(
+        name,
+      );
+      if (mounted) setState(() => _adminName = savedName);
+    } on Object catch (error) {
+      if (mounted) _showMessage(_message(error));
+    }
+  }
+
+  String get _adminInitials {
+    final parts = _adminName.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty || parts.first.isEmpty) return 'A';
+    return parts.take(2).map((part) => part[0].toUpperCase()).join();
   }
 
   Future<void> _load() async {
@@ -261,14 +319,20 @@ class _AdminDashboardState extends State<AdminDashboard>
   Future<void> _assignOrder(Map<String, dynamic> order) async {
     final candidates = _eligibleProviders(order);
     if (candidates.isEmpty) {
+      final approvedProviders = _providers.where(
+        (provider) => provider['verificationStatus'] == 'verified',
+      );
       _showMessage(
-        'No verified, available provider matches this service and area.',
+        approvedProviders.isEmpty
+            ? 'No approved providers are available yet. Approve a provider first.'
+            : 'All approved providers already have a booking at this time.',
       );
       return;
     }
     final selected = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (context) => _AssignProviderDialog(providers: candidates),
+      builder: (context) =>
+          _AssignProviderDialog(providers: candidates, services: _services),
     );
     if (selected == null) return;
     final orderId = order[r'$id'] as String? ?? '';
@@ -281,34 +345,43 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   List<Map<String, dynamic>> _eligibleProviders(Map<String, dynamic> order) {
-    final serviceId = order['serviceId'];
-    final targets =
-        [order['area'], order['city'], order['state'], order['pinCode']]
-            .whereType<String>()
-            .where((value) => value.isNotEmpty)
-            .map((value) => value.toLowerCase())
-            .toList();
-    return _providers.where((provider) {
-      if (provider['verificationStatus'] != 'verified' ||
-          provider['isAvailable'] != true) {
+    // Manual admin assignment is an override. Keep service/area matching for
+    // automatic assignment, but show every approved provider in this picker.
+    return _providers
+        .where(
+          (provider) =>
+              provider['verificationStatus'] == 'verified' &&
+              !_hasScheduleConflict(provider, order),
+        )
+        .toList();
+  }
+
+  bool _hasScheduleConflict(
+    Map<String, dynamic> provider,
+    Map<String, dynamic> order,
+  ) {
+    final requestedTime = DateTime.tryParse(
+      order['scheduledAt']?.toString() ?? '',
+    );
+    if (requestedTime == null) return false;
+    final providerId = provider['userId'];
+    final orderId = order[r'$id'];
+    return _orders.any((booking) {
+      if (booking[r'$id'] == orderId ||
+          booking['assignedProviderId'] != providerId ||
+          !const {
+            'assigned',
+            'accepted',
+            'out_for_service',
+            'in_progress',
+          }.contains(booking['status'])) {
         return false;
       }
-      final serviceIds = provider['serviceIds'];
-      final areas = provider['serviceAreas'];
-      if (serviceIds is! List ||
-          !serviceIds.contains(serviceId) ||
-          areas is! List) {
-        return false;
-      }
-      return areas.any((area) {
-        final value = area.toString().toLowerCase().trim();
-        return value == '*' ||
-            value == 'all' ||
-            targets.any(
-              (target) => value.contains(target) || target.contains(value),
-            );
-      });
-    }).toList();
+      final bookedTime = DateTime.tryParse(
+        booking['scheduledAt']?.toString() ?? '',
+      );
+      return bookedTime != null && bookedTime.isAtSameMomentAs(requestedTime);
+    });
   }
 
   Future<void> _runAction(Future<void> Function() action) async {
@@ -343,27 +416,62 @@ class _AdminDashboardState extends State<AdminDashboard>
     return 'Care service';
   }
 
+  int get _newBookingRequestCount =>
+      _orders.where((row) => row['status'] == 'pending_assignment').length;
+  int get _newProviderRequestCount =>
+      _providers.where((row) => row['verificationStatus'] == 'pending').length;
+  int get _notificationCount =>
+      _newBookingRequestCount + _newProviderRequestCount;
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Admin dashboard'),
+      leading: _showNotificationsPage
+          ? IconButton(
+              tooltip: 'Back to dashboard',
+              onPressed: () => setState(() => _showNotificationsPage = false),
+              icon: const Icon(Icons.arrow_back_rounded),
+            )
+          : null,
+      title: Text(_showNotificationsPage ? 'Notifications' : 'Hi, $_adminName'),
       actions: [
+        IconButton(
+          tooltip: 'Admin profile',
+          onPressed: _editAdminName,
+          icon: CircleAvatar(
+            radius: 15,
+            backgroundColor: const Color(0xFFDDF4EE),
+            child: Text(
+              _adminInitials,
+              style: const TextStyle(
+                color: appTeal,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+        if (!_showNotificationsPage)
+          IconButton(
+            tooltip: 'Booking and provider notifications',
+            onPressed: () => setState(() => _showNotificationsPage = true),
+            icon: Badge(
+              isLabelVisible: _notificationCount > 0,
+              label: Text('$_notificationCount'),
+              child: const Icon(Icons.notifications_none_rounded),
+            ),
+          ),
+        IconButton(
+          tooltip: 'Refresh',
+          onPressed: _loading ? null : _load,
+          icon: const Icon(Icons.refresh_rounded),
+        ),
         IconButton(
           onPressed: _signOut,
           tooltip: 'Sign out',
           icon: const Icon(Icons.logout),
         ),
       ],
-      bottom: TabBar(
-        controller: _tabs,
-        tabs: [
-          Tab(
-            text:
-                'Providers (${_providers.where((row) => row['verificationStatus'] == 'pending').length})',
-          ),
-          Tab(text: 'Bookings (${_orders.length})'),
-        ],
-      ),
     ),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
@@ -371,24 +479,112 @@ class _AdminDashboardState extends State<AdminDashboard>
         ? _ErrorPanel(message: _error!, onRetry: _load)
         : Stack(
             children: [
-              TabBarView(
-                controller: _tabs,
-                children: [_providerList(), _orderList()],
-              ),
+              _showNotificationsPage
+                  ? _notificationsPage()
+                  : IndexedStack(
+                      index: _selectedIndex,
+                      children: [
+                        _sectionPage(
+                          title: 'Bookings',
+                          subtitle: 'Track requests and assigned care visits.',
+                          child: _orderList(),
+                        ),
+                        _sectionPage(
+                          title: 'Available providers',
+                          subtitle:
+                              'Approved providers ready to receive bookings.',
+                          child: _providerList(
+                            providers: _providers
+                                .where(
+                                  (row) =>
+                                      row['verificationStatus'] == 'verified' &&
+                                      row['isAvailable'] == true,
+                                )
+                                .toList(),
+                            emptyMessage: 'No approved providers are currently available.',
+                          ),
+                        ),
+                        _sectionPage(
+                          title: 'Provider applications',
+                          subtitle: 'Review and approve new care providers.',
+                          child: _providerList(
+                            providers: _providers
+                                .where(
+                                  (row) =>
+                                      row['verificationStatus'] == 'pending',
+                                )
+                                .toList(),
+                            emptyMessage:
+                                'No provider applications need review.',
+                          ),
+                        ),
+                      ],
+                    ),
               if (_busy) const LinearProgressIndicator(),
+            ],
+          ),
+    bottomNavigationBar: _showNotificationsPage
+        ? null
+        : NavigationBar(
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: (index) =>
+                setState(() => _selectedIndex = index),
+            backgroundColor: Colors.white,
+            indicatorColor: const Color(0xFFDDF4EE),
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.calendar_month_outlined),
+                selectedIcon: Icon(Icons.calendar_month_rounded),
+                label: 'Bookings',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.verified_user_outlined),
+                selectedIcon: Icon(Icons.verified_user_rounded),
+                label: 'Available',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.person_add_alt_1_outlined),
+                selectedIcon: Icon(Icons.person_add_alt_1_rounded),
+                label: 'Applications',
+              ),
             ],
           ),
   );
 
-  Widget _providerList() {
-    final rows = [..._providers]
+  Widget _sectionPage({
+    required String title,
+    required String subtitle,
+    required Widget child,
+  }) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 4),
+            Text(subtitle, style: const TextStyle(color: appMuted)),
+          ],
+        ),
+      ),
+      Expanded(child: child),
+    ],
+  );
+
+  Widget _providerList({
+    required List<Map<String, dynamic>> providers,
+    required String emptyMessage,
+  }) {
+    final rows = [...providers]
       ..sort((a, b) {
         final pendingA = a['verificationStatus'] == 'pending' ? 0 : 1;
         final pendingB = b['verificationStatus'] == 'pending' ? 0 : 1;
         return pendingA.compareTo(pendingB);
       });
     if (rows.isEmpty) {
-      return const _EmptyPanel(message: 'No provider profiles yet.');
+      return _EmptyPanel(message: emptyMessage);
     }
     return RefreshIndicator(
       onRefresh: _load,
@@ -416,7 +612,9 @@ class _AdminDashboardState extends State<AdminDashboard>
                     children: [
                       Expanded(
                         child: Text(
-                          provider['businessName'] as String? ?? 'Provider',
+                          (provider['name'] as String? ?? '').trim().isNotEmpty
+                              ? (provider['name'] as String).trim()
+                              : 'Provider',
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 17,
@@ -427,7 +625,6 @@ class _AdminDashboardState extends State<AdminDashboard>
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text('Account ID: ${provider['userId'] ?? '—'}'),
                   if (serviceIds.isNotEmpty) Text('Services: $serviceIds'),
                   if (areas.isNotEmpty) Text('Service areas: $areas'),
                   if (status == 'pending') ...[
@@ -461,14 +658,65 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  Widget _orderList() {
-    final rows = [..._orders]
+  Widget _notificationsPage() => DefaultTabController(
+    length: 2,
+    child: Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Card(
+            child: ListTile(
+              leading: const Icon(
+                Icons.notifications_active_outlined,
+                color: appTeal,
+              ),
+              title: Text('$_notificationCount new notifications'),
+              subtitle: Text(
+                '$_newBookingRequestCount booking requests · '
+                '$_newProviderRequestCount provider applications',
+              ),
+            ),
+          ),
+        ),
+        TabBar(
+          tabs: [
+            Tab(text: 'Bookings ($_newBookingRequestCount)'),
+            Tab(text: 'Providers ($_newProviderRequestCount)'),
+          ],
+        ),
+        Expanded(
+          child: TabBarView(
+            children: [
+              _orderList(
+                orders: _orders
+                    .where((row) => row['status'] == 'pending_assignment')
+                    .toList(),
+                emptyMessage: 'No new booking requests.',
+              ),
+              _providerList(
+                providers: _providers
+                    .where((row) => row['verificationStatus'] == 'pending')
+                    .toList(),
+                emptyMessage: 'No provider applications need review.',
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _orderList({
+    List<Map<String, dynamic>>? orders,
+    String emptyMessage = 'No bookings yet.',
+  }) {
+    final rows = [...(orders ?? _orders)]
       ..sort(
         (a, b) => (b[r'$createdAt']?.toString() ?? '').compareTo(
           a[r'$createdAt']?.toString() ?? '',
         ),
       );
-    if (rows.isEmpty) return const _EmptyPanel(message: 'No bookings yet.');
+    if (rows.isEmpty) return _EmptyPanel(message: emptyMessage);
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.builder(
@@ -507,7 +755,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${order['serviceName'] ?? _serviceName(order['serviceId'])} • ${order['clientUserId'] ?? ''}',
+                    '${order['serviceName'] ?? _serviceName(order['serviceId'])} - ${order['clientName'] as String? ?? 'Client'}',
                   ),
                   if (scheduled != null)
                     Text('Scheduled: ${_formatDate(scheduled)}'),
@@ -516,7 +764,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                   ),
                   if (providerId != null && providerId.isNotEmpty)
                     Text(
-                      'Assigned provider: ${provider['businessName'] ?? providerId}',
+                      'Assigned provider: ${(provider['name'] as String? ?? '').trim().isNotEmpty ? (provider['name'] as String).trim() : 'Provider'}',
                     ),
                   if (canAssign) ...[
                     const SizedBox(height: 12),
@@ -540,9 +788,90 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 }
 
+class _AdminNameDialog extends StatefulWidget {
+  const _AdminNameDialog({
+    required this.initialName,
+    required this.initials,
+    required this.email,
+  });
+
+  final String initialName;
+  final String initials;
+  final String? email;
+
+  @override
+  State<_AdminNameDialog> createState() => _AdminNameDialogState();
+}
+
+class _AdminNameDialogState extends State<_AdminNameDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    scrollable: true,
+    title: const Text('Admin profile'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        CircleAvatar(
+          radius: 30,
+          backgroundColor: const Color(0xFFDDF4EE),
+          child: Text(
+            widget.initials,
+            style: const TextStyle(
+              color: appTeal,
+              fontSize: 19,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        if (widget.email?.isNotEmpty == true) ...[
+          const SizedBox(height: 8),
+          Text(widget.email!, textAlign: TextAlign.center),
+        ],
+        const SizedBox(height: 16),
+        TextField(
+          controller: _controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          maxLength: 120,
+          decoration: const InputDecoration(labelText: 'Admin name'),
+          onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+        child: const Text('Save'),
+      ),
+    ],
+  );
+}
+
 class _AssignProviderDialog extends StatefulWidget {
-  const _AssignProviderDialog({required this.providers});
+  const _AssignProviderDialog({
+    required this.providers,
+    required this.services,
+  });
   final List<Map<String, dynamic>> providers;
+  final List<Map<String, dynamic>> services;
 
   @override
   State<_AssignProviderDialog> createState() => _AssignProviderDialogState();
@@ -551,24 +880,67 @@ class _AssignProviderDialog extends StatefulWidget {
 class _AssignProviderDialogState extends State<_AssignProviderDialog> {
   String? _selectedId;
 
+  String _serviceName(dynamic serviceId) {
+    for (final service in widget.services) {
+      if (service[r'$id'] == serviceId) {
+        return service['name'] as String? ?? 'Care service';
+      }
+    }
+    return 'Care service';
+  }
+
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('Assign provider'),
-    content: DropdownButtonFormField<String>(
-      initialValue: _selectedId,
-      decoration: const InputDecoration(
-        labelText: 'Verified available provider',
+    content: SizedBox(
+      width: double.maxFinite,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * .6,
+        ),
+        child: ListView.separated(
+          shrinkWrap: true,
+          itemCount: widget.providers.length,
+          separatorBuilder: (_, _) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final provider = widget.providers[index];
+            final id = provider['userId'] as String;
+            final availability = provider['isAvailable'] == true
+                ? 'Available'
+                : 'Unavailable (manual assignment)';
+            final services = provider['serviceIds'] is List
+                ? (provider['serviceIds'] as List).map(_serviceName).join(', ')
+                : 'No services listed';
+            final areas = provider['serviceAreas'] is List
+                ? (provider['serviceAreas'] as List).join(', ')
+                : 'No areas listed';
+            final selected = id == _selectedId;
+            return ListTile(
+              selected: selected,
+              onTap: () => setState(() => _selectedId = id),
+              leading: Icon(
+                selected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+              ),
+              title: Text(
+                (provider['name'] as String? ?? '').trim().isNotEmpty
+                    ? (provider['name'] as String).trim()
+                    : 'Provider',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                '$availability\nServices: $services\nAreas: $areas',
+                maxLines: 5,
+                overflow: TextOverflow.ellipsis,
+              ),
+              isThreeLine: true,
+              contentPadding: EdgeInsets.zero,
+            );
+          },
+        ),
       ),
-      items: widget.providers.map((provider) {
-        final id = provider['userId'] as String;
-        final title =
-            '${provider['businessName'] ?? 'Provider'} • ${provider['serviceAreas'] is List ? (provider['serviceAreas'] as List).join(', ') : ''}';
-        return DropdownMenuItem(
-          value: id,
-          child: Text(title, overflow: TextOverflow.ellipsis),
-        );
-      }).toList(),
-      onChanged: (value) => setState(() => _selectedId = value),
     ),
     actions: [
       TextButton(

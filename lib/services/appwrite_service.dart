@@ -32,6 +32,27 @@ class AppwriteService {
   Future<List<Map<String, dynamic>>> listAdminServices() =>
       _listAdminRows('/admin/services', method: enums.ExecutionMethod.gET);
 
+  Future<String?> getAdminDisplayName() async {
+    final response = await callApi(
+      '/admin/profile',
+      const {},
+      method: enums.ExecutionMethod.gET,
+    );
+    final row = response['row'];
+    final name = row is Map ? row['name'] : null;
+    return name is String && name.trim().isNotEmpty ? name.trim() : null;
+  }
+
+  Future<String> updateAdminDisplayName(String name) async {
+    final response = await callApi('/admin/profile', {'name': name.trim()});
+    final row = response['row'];
+    final savedName = row is Map ? row['name'] : null;
+    if (savedName is! String || savedName.trim().isEmpty) {
+      throw const FormatException('The admin name could not be saved.');
+    }
+    return savedName.trim();
+  }
+
   Future<void> updateProviderVerification(
     String userId,
     String verificationStatus,

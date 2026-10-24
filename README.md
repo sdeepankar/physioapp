@@ -126,7 +126,7 @@ Bundles are written to `build/app/outputs/bundle/`.
 
 ## Appwrite configuration
 
-The shared Appwrite endpoint, project, database, and table IDs are configured in [`lib/core/appwrite_config.dart`](lib/core/appwrite_config.dart). The apps use the existing `registered-email-otp` Function for backend operations. Deploy and configure that Function using [`functions/registered-email-otp/README.md`](functions/registered-email-otp/README.md), then confirm its IDs and permissions against the Appwrite Console.
+The shared Appwrite endpoint, project, database, and table IDs are configured in [`lib/core/appwrite_config.dart`](lib/core/appwrite_config.dart). The apps use the existing `registered-email-otp` Function for backend operations. Redeploy this function after changes to `functions/registered-email-otp/src/main.js`; the provider application and assigned-order contact routes are included there. Follow [`functions/registered-email-otp/README.md`](functions/registered-email-otp/README.md) and confirm the function's IDs and permissions against the Appwrite Console.
 
 Current app data uses the Appwrite `user_profiles`, `services`, `provider_profiles`, `orders`, and `order_events` tables. Saved addresses and app preferences are stored on-device. The UPI payment page is a demo and does not charge or verify payments.
 
@@ -138,7 +138,7 @@ Android location permissions are declared in `android/app/src/main/AndroidManife
 
 - Client: email OTP account access, profile sync/editing, service browsing, booking creation/history/details, booking cancellation, location lookup, settings, and support UI.
 - Admin: review provider profiles and assign orders to providers.
-- Provider: flavor and app scaffold are in place; sign-in, availability, and assigned-booking workflows remain to be implemented.
+- Provider: email OTP sign-in and account creation, profile application/re-submission, admin verification status, availability, assigned booking details, client phone calling, and accept/decline/on-the-way/start/complete actions.
 - Payment: UPI is a non-transactional demo; a payment provider and server-side confirmation are still needed.
 - Other future work: booking notifications/reminders, saved-address and medical-history backend storage with access controls, Hindi translations, and a complete support contact flow.
 

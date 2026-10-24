@@ -1,0 +1,177 @@
+﻿# Deep Care — Project Handoff and Next Work Prompt
+
+Copy everything in the **Prompt for the next chat** section into a new chat. It describes the current project state, completed work, important Appwrite details, and the next tasks.
+
+---
+
+## Prompt for the next chat
+
+You are continuing development of my existing Flutter project, **Deep Care**, located at:
+
+```text
+D:\Project\flutterapp\physioapp
+```
+
+Work in the existing project and inspect its current files before changing anything. Keep the existing architecture and Appwrite project/function. Do not create a second backend function or a separate Flutter project unless I explicitly request it. Make concrete code changes where appropriate, explain any required Appwrite/Firebase Console steps that cannot be done from the repository, and verify changes with relevant static checks/builds. Preserve unrelated local work and never overwrite or revert user changes without checking.
+
+### Product and app structure
+
+This is one Flutter codebase that builds three separate Android apps using flavors:
+
+| App | Flavor | Entrypoint | Android application ID |
+|---|---|---|---|
+| Client | `client` | `lib/main_client.dart` | `com.example.physio` |
+| Admin | `admin` | `lib/main_admin.dart` | `com.example.physio.admin` |
+| Provider | `provider` | `lib/main_provider.dart` | `com.example.physio.provider` |
+
+The entrypoints delegate into app-specific code under `lib/client/`, `lib/admin/`, and `lib/provider/`. Shared code/configuration is in `lib/core/` and `lib/services/`. Android flavor configuration is in `android/app/build.gradle.kts`.
+
+The apps serve three roles:
+
+- **Client:** registers/signs in with email OTP, browses care services, creates and tracks bookings, manages profile/address information, and cancels eligible bookings.
+- **Provider:** applies for provider status, waits for admin approval, sets availability, receives assigned bookings, and accepts/declines, goes on the way, starts, or completes the service.
+- **Admin:** manages admin accounts, reviews provider applications, sees booking requests, assigns/reassigns bookings, and manages provider/service information.
+
+Keep role-specific files in their respective folders and put shared features in common `lib/` folders.
+
+### Appwrite project and database
+
+The apps use the existing Appwrite project and the existing function. Relevant configuration is in `lib/core/appwrite_config.dart`:
+
+- Project ID: `6ab766b5002cd758ce3b`
+- API endpoint: `https://fra.cloud.appwrite.io/v1`
+- Database ID: `6acbac6a0016d4551f12`
+- Existing function ID: `registered-email-otp`
+
+Tables:
+
+| Table | Table ID |
+|---|---|
+| `user_profiles` | `6acbad45001b46bb01cd` |
+| `services` | `6acf9e8d0034d5ede54b` |
+| `provider_profiles` | `6acfa26a0014413c2ddc` |
+| `orders` | `6acfa6620002e1667c9d` |
+| `order_events` | `6acfad54000fe0c6131f` |
+| `booking_counters` | `6adba477000bac6a2804` |
+
+The `services` table was populated with these services: Home Nursing, Physiotherapy, Caregiver, Elder Care, Lab Sample, Doctor Visit, Health Check, and Ambulance. The admin imports/maintains the catalog in Appwrite.
+
+The `orders` table needs the `clientRequestId` attribute (varchar, max 36, optional for existing rows) and a unique index on it for request idempotency. The `booking_counters` table needs an integer `value` column, required/default 0, range 0–99999. Confirm actual Appwrite Console schema before proposing a migration; some earlier failures occurred because code referenced fields/tables before they existed.
+
+Booking IDs are allocated server-side, incrementing (not random):
+
+```text
+DC + two-character service code + appointment YYYYMM + five-digit sequence
+```
+
+Example: `DCAM20261000001`. Sequence increments independently for each service and appointment month. The function uses the `booking_counters` table and atomic increment. Preserve this behavior and do not replace it with client-generated or random IDs.
+
+Order status behavior includes pending assignment, assigned, accepted, provider en route (`out_for_service`), in progress, completed, rejected/reassigned, and cancelled. Verify the Appwrite enum includes every status the backend writes before deploying schema-dependent changes. `order_events` stores event history such as actor, event type, previous/new status, note, and order ID.
+
+Provider assignment requirements:
+
+- Only verified providers are eligible for assignment.
+- Match provider service and service area to the requested order.
+- Do not offer a provider if they already have another active booking that conflicts with the requested date/time; providers may be offered when their other booking is at a different time.
+- On rejection, offer to another eligible provider. If no provider matches, return the order to pending assignment and notify admins for manual intervention.
+- Admin booking views should show the client’s real name and useful provider contact/name information, not raw Appwrite IDs. Provider display should use the person's profile name rather than only the business name where the UI requests the provider’s name.
+
+### Backend function
+
+The full backend is in:
+
+```text
+functions/registered-email-otp/src/main.js
+```
+
+Keep OTP and all authenticated client/provider/admin API routes in this existing function. Its README is `functions/registered-email-otp/README.md`; runtime is Node.js 22 and entrypoint is `src/main.js`. Deploy this existing function after changing it. Function needs the relevant Appwrite scopes, including `users.read`, database/row read and write scopes, and `messages.write` for push messages. Keep public execution available for the pre-session OTP route, but authenticated business routes must continue validating the user/session and role.
+
+### Push notifications: implemented code, external setup still missing
+
+A shared Android notification service was added at `lib/services/push_notification_service.dart` and is initialized from authenticated Client, Provider, and Admin screens. It requests Android notification permission, obtains the Firebase Messaging token, registers a push target for the signed-in Appwrite account, displays foreground pushes using local notifications, and routes notification taps into the relevant app section/refresh.
+
+The existing function now sends notifications as follows:
+
+- **Admin:** new booking requests, new provider applications, and bookings requiring manual reassignment.
+- **Provider:** new assignments/reassignments and approval/status updates.
+- **Client:** booking received, provider assignment/reassignment/acceptance, provider en route, service started/completed, and cancellation where relevant.
+
+The code is present, but push delivery has **not been verified end-to-end**. At last inspection, this repository did not contain `android/app/google-services.json`. Until Firebase is configured, the apps cannot initialize Firebase or obtain/register FCM tokens. Appwrite also needs an FCM provider configured. Never claim phone push is working until a real device test succeeds.
+
+To finish external setup:
+
+1. In Firebase Console, register all Android app IDs listed above in one Firebase project.
+2. Download the Android configuration containing those apps and put `google-services.json` at `android/app/google-services.json` (never commit service account secrets; decide whether this client config should be ignored or included according to project policy).
+3. In Appwrite Messaging → Providers, configure an FCM provider using the Firebase service-account credentials.
+4. Add the Android app IDs as Appwrite platforms and make sure the function has `messages.write`; redeploy the existing function with the latest `main.js`.
+5. Rebuild and reinstall each app, sign in as the relevant role, and grant Android notification permission.
+6. Verify a new client request produces a notification on the signed-in Admin device. Then test provider assignment/approval and client status alerts. Confirm Appwrite push targets exist for each account and inspect function execution logs for send errors.
+
+An FCM provider is not the only push vendor in general, but this repository currently uses Firebase Messaging + Appwrite FCM; switching vendors requires deliberate app/backend changes.
+
+### Recent completed work
+
+- Client, Admin, and Provider flavors and role-specific folder layout are present.
+- Provider application, verification, availability, booking workflow, admin assignment, rescheduling/conflict rules, booking IDs, and admin account management have been implemented across earlier work.
+- Shared push handling and role-specific push sends were added to all three apps.
+- README/setup documentation and the function package were updated.
+- Last push was to branch `feature/email-otp-auth`, commit:
+
+```text
+13c2871 Add push notifications across app flavors
+```
+
+- Previous validation for that work: `dart analyze` on changed Dart files, `node --check functions/registered-email-otp/src/main.js`, and `git diff --check` succeeded.
+- A function deployment archive was created at the project root as `registered-email-otp-complete.tar.gz`.
+
+### Upcoming work, in priority order
+
+1. **Complete push setup and prove delivery** using the Firebase and Appwrite steps above. First test the Admin alert for a newly created booking, then Provider and Client events. If delivery fails, identify which stage fails: Firebase init/token, Appwrite push target creation, function permission/message creation, or Android OS delivery.
+2. **Improve push diagnostics** so missing Firebase configuration, denied notification permission, token registration errors, and Appwrite send failures are easy to distinguish during development. Avoid exposing tokens, secrets, customer addresses, or sensitive medical details in logs/notification bodies.
+3. **Review event coverage and status alignment** against actual Appwrite enum values and routes so each lifecycle transition sends one appropriate notification to the right role without duplicates. Make repeated booking submits idempotent and avoid sending notifications for duplicate requests.
+4. **Polish navigation on notification tap** so the booking referenced in the push opens directly if practical, rather than only opening a general tab; refresh state after resume.
+5. Continue app polish and reliability: access control for profile and booking data, persistent saved addresses/medical history if needed, complete support contacts, and production payment integration. The current UPI/payment screen is a demo and is not a verified transaction flow.
+6. Before public/production release, replace debug release signing with a protected release keystore, review Appwrite permissions/secrets, validate privacy/security, and build/test all three flavors.
+
+### Build commands
+
+Run one flavor at a time from the project root:
+
+```powershell
+flutter run --flavor client --target lib/main_client.dart
+flutter run --flavor admin --target lib/main_admin.dart
+flutter run --flavor provider --target lib/main_provider.dart
+```
+
+Build release APKs:
+
+```powershell
+flutter build apk --release --flavor client --target lib/main_client.dart
+flutter build apk --release --flavor admin --target lib/main_admin.dart
+flutter build apk --release --flavor provider --target lib/main_provider.dart
+```
+
+Build release App Bundles:
+
+```powershell
+flutter build appbundle --release --flavor client --target lib/main_client.dart
+flutter build appbundle --release --flavor admin --target lib/main_admin.dart
+flutter build appbundle --release --flavor provider --target lib/main_provider.dart
+```
+
+For VS Code, after cloning, copy the **contents** of `tooling/vscode/` into `.vscode/`:
+
+```powershell
+New-Item -ItemType Directory -Force .vscode | Out-Null
+Copy-Item tooling/vscode/* .vscode/ -Force
+```
+
+Flutter CLI run/build commands do not require this copy.
+
+### Working expectations
+
+Start by checking repository root, current branch, `git status`, README, and relevant source before editing. The user may have uncommitted local work; preserve it. Make requested changes in the existing project, keep the three app flavors and single Appwrite function, and give clear file paths and setup steps. Do not push or merge unless explicitly requested. Run appropriate static checks/builds after implementation and report exactly what was and was not verified. For changes to the function source, regenerate `registered-email-otp-complete.tar.gz` with its `package.json`, `package-lock.json`, README, and `src/main.js` if the user still needs that deployment archive.
+
+## Current local workspace note
+
+At the time this handoff was written, branch `feature/email-otp-auth` was at `13c2871`. The working tree had three tracked tarball deletions (`deep-care-all-apps.tar.gz`, `registered-email-otp-main.tar.gz`, and `registered-email-otp-provider.tar.gz`) plus this untracked `next work` file. Preserve those local changes unless I explicitly ask to restore/remove them.

@@ -9,6 +9,7 @@ import '../models/booking.dart';
 import '../models/care_service.dart';
 import '../models/patient_profile.dart';
 import '../../services/appwrite_service.dart';
+import '../../services/push_notification_service.dart';
 import '../services/appwrite_client_service.dart';
 import '../services/location_service.dart';
 import 'booking_flow_screen.dart';
@@ -49,6 +50,13 @@ class _PatientShellState extends State<PatientShell> {
   void initState() {
     super.initState();
     _loadBackendData();
+    PushNotificationService.instance.initialize(
+      onNotificationTap: () {
+        if (!mounted) return;
+        setState(() => _index = 1);
+        _loadBackendData();
+      },
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _updateLocation(automatic: true);
     });

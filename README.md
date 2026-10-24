@@ -128,6 +128,33 @@ Bundles are written to `build/app/outputs/bundle/`.
 
 The shared Appwrite endpoint, project, database, and table IDs are configured in [`lib/core/appwrite_config.dart`](lib/core/appwrite_config.dart). The apps use the existing `registered-email-otp` Function for backend operations. Redeploy this function after changes to `functions/registered-email-otp/src/main.js`; the provider application and assigned-order contact routes are included there. Follow [`functions/registered-email-otp/README.md`](functions/registered-email-otp/README.md) and confirm the function's IDs and permissions against the Appwrite Console.
 
+## Android push notifications for all apps
+
+Client, Provider, and Admin apps register their signed-in Android devices with
+Appwrite Messaging. Admins receive new booking and provider application alerts;
+providers receive assignments and approval updates; clients receive booking,
+assignment, and care progress updates. Configure delivery before expecting
+phone notifications:
+
+1. In Firebase Console, add Android apps for `com.example.physio`,
+   `com.example.physio.admin`, and `com.example.physio.provider` to the same
+   Firebase project, then put the downloaded multi-app `google-services.json`
+   at `android/app/google-services.json`. The Google Services Gradle plugin is
+   applied automatically when this file exists.
+2. In Appwrite, open **Messaging → Providers**, add an **FCM** push provider,
+   and configure it with the Firebase service account JSON.
+3. Add the `messages.write` scope to the `registered-email-otp` Function and
+   redeploy the function source.
+4. Add all three Android application IDs (`com.example.physio`,
+   `com.example.physio.admin`, and `com.example.physio.provider`) as platforms
+   in the Appwrite project. Install each app, sign in, and allow notifications
+   when Android asks.
+
+Android permission is requested after sign-in in each app. If notifications
+were denied previously, enable them in Android Settings → Apps → the relevant
+Deep Care app → Notifications. Without the Firebase configuration and Appwrite
+FCM provider, the apps remain usable but push delivery will not work.
+
 Current app data uses the Appwrite `user_profiles`, `services`, `provider_profiles`, `orders`, and `order_events` tables. Saved addresses and app preferences are stored on-device. The UPI payment page is a demo and does not charge or verify payments.
 
 ## Location permissions

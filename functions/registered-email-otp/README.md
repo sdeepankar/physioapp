@@ -11,12 +11,14 @@ Configure it with:
 - Entrypoint: `src/main.js`
 - Build command: `npm install`
 - Execute access: Any (the login screen is used before a session exists)
-- Scopes: `users.read`, `databases.read`, `rows.read`, `rows.write`
+- Scopes: `users.read`, `databases.read`, `rows.read`, `rows.write`, `messages.write`
 
 Deploy the contents of this directory as the source for the existing function.
 The `users.read` scope supports the login email check; database and row scopes
 are needed for the authenticated API routes. Function execution access must
 remain `Any` because the registered-email check runs before a session exists.
+The `messages.write` scope lets the function send push notifications to signed-in
+admin users after new bookings and provider applications are created.
 
 Configure these function variables if you use table IDs different from the
 defaults embedded in `src/main.js`:

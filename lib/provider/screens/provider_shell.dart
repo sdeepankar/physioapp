@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/app_theme.dart';
 import '../../services/appwrite_service.dart';
+import '../../services/push_notification_service.dart';
 import '../services/provider_service.dart';
 
 class ProviderAuthGate extends StatefulWidget {
@@ -669,6 +670,13 @@ class _ProviderDashboardState extends State<ProviderDashboard> {
   @override
   void initState() {
     super.initState();
+    PushNotificationService.instance.initialize(
+      onNotificationTap: () {
+        if (!mounted) return;
+        setState(() => _tab = 0);
+        _loadOrders();
+      },
+    );
     _loadOrders();
     _loadServiceCatalog();
   }

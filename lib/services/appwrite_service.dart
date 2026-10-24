@@ -23,6 +23,10 @@ class AppwriteService {
 
   Future<String> ping() => client.ping();
 
+  Future<void> registerPushTarget(String token) async {
+    await account.createPushTarget(targetId: ID.unique(), identifier: token);
+  }
+
   Future<List<Map<String, dynamic>>> listAdminOrders() =>
       _listAdminRows('/admin/orders');
 

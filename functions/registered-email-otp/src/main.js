@@ -1,4 +1,4 @@
-import { Account, Client, ID, Query, TablesDB, Users } from 'node-appwrite';
+import { Account, Client, ID, Messaging, Query, TablesDB, Users } from 'node-appwrite';
 
 const databaseId = process.env.DEEP_CARE_DATABASE_ID || '6acbac6a0016d4551f12';
 const tableIds = {
@@ -36,6 +36,9 @@ async function handleCareApi({ req, res, error, path }) {
       new Client().setEndpoint(endpoint).setProject(projectId).setKey(functionKey),
     );
     const adminUsers = new Users(
+      new Client().setEndpoint(endpoint).setProject(projectId).setKey(functionKey),
+    );
+    const messaging = new Messaging(
       new Client().setEndpoint(endpoint).setProject(projectId).setKey(functionKey),
     );
     const actorId = user.$id;
@@ -87,6 +90,13 @@ async function handleCareApi({ req, res, error, path }) {
       const provider = existingProvider
         ? await tables.updateRow({ databaseId, tableId: tableIds.providers, rowId: existingProvider.$id, data: providerData })
         : await tables.createRow({ databaseId, tableId: tableIds.providers, rowId: ID.unique(), data: { ...providerData, completedOrderCount: 0 } });
+      if (!existingProvider || existingProvider.verificationStatus !== 'pending') {
+        await notifyAdmins(tables, messaging, {
+          title: 'New provider application',
+          body: 'A provider profile is waiting for approval.',
+          data: { type: 'provider_application', providerUserId: actorId },
+        });
+      }
       return res.json({ row: provider });
     }
 
@@ -127,7 +137,7 @@ async function handleCareApi({ req, res, error, path }) {
 
     if (method === 'POST' && path === '/orders') {
       if (role !== 'client') return res.json({ message: 'Only client accounts can create a booking.' }, 403);
-      return createOrder(tables, actorId, body, res);
+      return createOrder(tables, messaging, actorId, body, res);
     }
 
     const eventsMatch = path.match(/^\/orders\/([^/]+)\/events$/);
@@ -150,6 +160,10 @@ async function handleCareApi({ req, res, error, path }) {
       }
       const updated = await changeOrder(tables, order, { status: 'cancelled' }, {
         actorUserId: actorId, eventType: 'cancelled', newStatus: 'cancelled', note: cleanText(body.note, 500),
+      });
+      await notifyUsers(tables, messaging, [order.assignedProviderId], {
+        title: 'Booking cancelled', body: 'A booking assigned to you was cancelled.',
+        data: { type: 'booking_cancelled', bookingId: order.$id },
       });
       return res.json({ row: updated });
     }
@@ -210,12 +224,12 @@ async function handleCareApi({ req, res, error, path }) {
       if (!provider || provider.verificationStatus !== 'verified') {
         return res.json({ message: 'Your provider profile must be verified before updating bookings.' }, 403);
       }
-      return providerOrderAction(tables, actorId, providerAction[1], providerAction[2], body, res);
+      return providerOrderAction(tables, messaging, actorId, providerAction[1], providerAction[2], body, res);
     }
 
     if (path.startsWith('/admin/')) {
       if (role !== 'admin') return res.json({ message: 'Admin access is required.' }, 403);
-      return adminRoute(tables, adminUsers, actorId, method, path, body, res);
+      return adminRoute(tables, adminUsers, messaging, actorId, method, path, body, res);
     }
 
     return res.json({ message: 'Unknown backend route.' }, 404);
@@ -312,7 +326,7 @@ async function changeOrder(tables, order, data, event) {
   return updated;
 }
 
-async function createOrder(tables, clientUserId, body, res) {
+async function createOrder(tables, messaging, clientUserId, body, res) {
   const clientRequestId = cleanText(body.clientRequestId, 36);
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,35}$/.test(clientRequestId)) {
     return res.json({ message: 'The booking request ID is invalid. Please retry.' }, 400);
@@ -382,7 +396,52 @@ async function createOrder(tables, clientUserId, body, res) {
     await tables.deleteRow({ databaseId, tableId: tableIds.orders, rowId: orderId }).catch(() => {});
     throw cause;
   }
+  await notifyAdmins(tables, messaging, {
+    title: 'New booking request',
+    body: `${service.name} is waiting for provider assignment.`,
+    data: { type: 'booking_request', bookingId: orderId },
+  });
+  await notifyUsers(tables, messaging, [clientUserId], {
+    title: 'Booking request received',
+    body: `Your ${service.name} request has been sent to Deep Care.`,
+    data: { type: 'booking_created', bookingId: orderId },
+  });
   return res.json({ row });
+}
+
+async function notifyAdmins(tables, messaging, { title, body, data }) {
+  try {
+    const profiles = await listRows(tables, 'profiles');
+    const adminIds = [...new Set(profiles
+      .filter((profile) => profile.role === 'admin' && profile.userId)
+      .map((profile) => profile.userId))];
+    await sendPush(tables, messaging, adminIds, { title, body, data });
+  } catch (cause) {
+    // A push failure must never make a booking or provider application fail.
+    console.error('Could not send admin push notification:', cause?.message ?? cause);
+  }
+}
+
+async function notifyUsers(tables, messaging, userIds, { title, body, data }) {
+  try {
+    await sendPush(tables, messaging, userIds, { title, body, data });
+  } catch (cause) {
+    console.error('Could not send user push notification:', cause?.message ?? cause);
+  }
+}
+
+async function sendPush(tables, messaging, userIds, { title, body, data }) {
+  const recipients = [...new Set(userIds.filter((id) => typeof id === 'string' && id))];
+  if (!recipients.length) return;
+  await messaging.createPush({
+      messageId: ID.unique(),
+      title,
+      body,
+      users: recipients,
+      data,
+      sound: 'default',
+      priority: 'high',
+    });
 }
 
 function serviceCodeFor(name = '') {
@@ -433,30 +492,40 @@ async function nextBookingNumber(tables, sequenceKey) {
   return updated.value;
 }
 
-async function providerOrderAction(tables, actorId, orderId, action, body, res) {
+async function providerOrderAction(tables, messaging, actorId, orderId, action, body, res) {
   const order = await getRow(tables, 'orders', orderId);
   if (order.assignedProviderId !== actorId) return res.json({ message: 'This booking is not assigned to your provider account.' }, 403);
   const note = cleanText(body.note, 500);
   if (action === 'accept' && order.status === 'assigned') {
-    return res.json({ row: await changeOrder(tables, order, { status: 'accepted' }, { actorUserId: actorId, eventType: 'accepted', newStatus: 'accepted', note }) });
+    const updated = await changeOrder(tables, order, { status: 'accepted' }, { actorUserId: actorId, eventType: 'accepted', newStatus: 'accepted', note });
+    await notifyUsers(tables, messaging, [order.clientUserId], { title: 'Provider confirmed', body: 'Your care provider accepted the booking.', data: { type: 'booking_accepted', bookingId: order.$id } });
+    return res.json({ row: updated });
   }
   if (action === 'reject' && order.status === 'assigned') {
     const replacement = await chooseProvider(tables, order, actorId);
     if (replacement) {
       const updated = await changeOrder(tables, order, { assignedProviderId: replacement.userId, assignedAt: new Date().toISOString(), status: 'assigned' }, { actorUserId: actorId, eventType: 'reassigned', newStatus: 'assigned', note: `Provider ${actorId} declined.${note ? ` Note: ${note}.` : ''} Reassigned to ${replacement.businessName}.` });
+      await notifyUsers(tables, messaging, [replacement.userId], { title: 'New booking assigned', body: 'A care booking is waiting for your response.', data: { type: 'booking_assigned', bookingId: order.$id } });
+      await notifyUsers(tables, messaging, [order.clientUserId], { title: 'Provider updated', body: 'Your booking has been assigned to another care provider.', data: { type: 'booking_reassigned', bookingId: order.$id } });
       return res.json({ row: updated, reassigned: true });
     }
     const updated = await changeOrder(tables, order, { assignedProviderId: null, assignedAt: null, status: 'pending_assignment' }, { actorUserId: actorId, eventType: 'rejected', newStatus: 'pending_assignment', note: note || 'No other verified, available provider matched. Admin intervention is needed.' });
+    await notifyAdmins(tables, messaging, { title: 'Booking needs reassignment', body: 'No available provider accepted this booking. Admin action is needed.', data: { type: 'booking_needs_assignment', bookingId: order.$id } });
     return res.json({ row: updated, reassigned: false, manualInterventionRequired: true });
   }
   if (action === 'out-for-service' && order.status === 'accepted') {
-    return res.json({ row: await changeOrder(tables, order, { status: 'out_for_service' }, { actorUserId: actorId, eventType: 'accepted', newStatus: 'out_for_service', note: note || 'Provider is on the way.' }) });
+    const updated = await changeOrder(tables, order, { status: 'out_for_service' }, { actorUserId: actorId, eventType: 'accepted', newStatus: 'out_for_service', note: note || 'Provider is on the way.' });
+    await notifyUsers(tables, messaging, [order.clientUserId], { title: 'Provider is on the way', body: 'Your care provider is heading to your location.', data: { type: 'provider_out_for_service', bookingId: order.$id } });
+    return res.json({ row: updated });
   }
   if (action === 'start' && order.status === 'out_for_service') {
-    return res.json({ row: await changeOrder(tables, order, { status: 'in_progress' }, { actorUserId: actorId, eventType: 'started', newStatus: 'in_progress', note: note || 'Service started at the client location.' }) });
+    const updated = await changeOrder(tables, order, { status: 'in_progress' }, { actorUserId: actorId, eventType: 'started', newStatus: 'in_progress', note: note || 'Service started at the client location.' });
+    await notifyUsers(tables, messaging, [order.clientUserId], { title: 'Care visit started', body: 'Your care provider has started the service.', data: { type: 'booking_started', bookingId: order.$id } });
+    return res.json({ row: updated });
   }
   if (action === 'complete' && order.status === 'in_progress') {
     const result = await changeOrder(tables, order, { status: 'completed' }, { actorUserId: actorId, eventType: 'completed', newStatus: 'completed', note });
+    await notifyUsers(tables, messaging, [order.clientUserId], { title: 'Care visit complete', body: 'Your care provider marked the booking complete.', data: { type: 'booking_completed', bookingId: order.$id } });
     const provider = await findProvider(tables, actorId);
     if (provider) {
       await tables.updateRow({ databaseId, tableId: tableIds.providers, rowId: provider.$id, data: { completedOrderCount: (provider.completedOrderCount ?? 0) + 1 } }).catch(() => {});
@@ -522,7 +591,7 @@ async function hasScheduleConflict(tables, providerId, requestedOrder) {
   return hasScheduleConflictInOrders(bookings, providerId, requestedOrder);
 }
 
-async function adminRoute(tables, users, actorId, method, path, body, res) {
+async function adminRoute(tables, users, messaging, actorId, method, path, body, res) {
   if (method === 'GET' && path === '/admin/admins') {
     const profiles = (await listRows(tables, 'profiles'))
       .filter((row) => row.role === 'admin');
@@ -656,6 +725,8 @@ async function adminRoute(tables, users, actorId, method, path, body, res) {
       newStatus: 'assigned',
       note: cleanText(body.note, 500),
     });
+    await notifyUsers(tables, messaging, [provider.userId], { title: 'New booking assigned', body: 'A care booking is waiting for your response.', data: { type: 'booking_assigned', bookingId: order.$id } });
+    await notifyUsers(tables, messaging, [order.clientUserId], { title: 'Provider assigned', body: 'A care provider has been assigned to your booking.', data: { type: 'booking_assigned', bookingId: order.$id } });
     return res.json({ row: updated, previousStatus });
   }
 
@@ -677,7 +748,13 @@ async function adminRoute(tables, users, actorId, method, path, body, res) {
     // Approval makes the provider eligible for manual and automatic assignment.
     // Rejection or suspension always removes them from assignment candidates.
     const data = { verificationStatus: status, isAvailable: status === 'verified' };
-    return res.json({ row: await tables.updateRow({ databaseId, tableId: tableIds.providers, rowId: provider.$id, data }) });
+    const row = await tables.updateRow({ databaseId, tableId: tableIds.providers, rowId: provider.$id, data });
+    await notifyUsers(tables, messaging, [provider.userId], {
+      title: status === 'verified' ? 'Provider profile approved' : 'Provider profile updated',
+      body: status === 'verified' ? 'Your provider profile is approved. You can now receive bookings.' : `Your provider profile status is ${status}.`,
+      data: { type: 'provider_verification', status },
+    });
+    return res.json({ row });
   }
 
   return res.json({ message: 'Unknown admin route.' }, 404);

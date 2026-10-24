@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 import '../../services/appwrite_service.dart';
+import '../../services/push_notification_service.dart';
 
 class AdminAuthGate extends StatefulWidget {
   const AdminAuthGate({super.key});
@@ -220,9 +223,21 @@ class _AdminDashboardState extends State<AdminDashboard> {
   @override
   void initState() {
     super.initState();
+    unawaited(_setupPhoneNotifications());
     _loadAdminName();
     _load();
   }
+
+  Future<void> _setupPhoneNotifications() =>
+      PushNotificationService.instance.initialize(
+        onNotificationTap: () {
+          if (!mounted) return;
+          setState(() {
+            _showNotificationsPage = true;
+            _showAdminsPage = false;
+          });
+        },
+      );
 
   Future<void> _loadAdminName() async {
     String? name;

@@ -1,5 +1,5 @@
 const appwriteProjectId = '6ab766b5002cd758ce3b';
-const appwriteProjectName = 'My first project';
+const appwriteProjectName = 'Deep Care';
 // This project is hosted in Appwrite's Frankfurt region. Use its regional API
 // endpoint directly so browser clients do not need to follow a cross-origin
 // redirect from the global endpoint.

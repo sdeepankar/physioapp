@@ -138,6 +138,9 @@ Android location permissions are declared in `android/app/src/main/AndroidManife
 
 - Client: email OTP account access, profile sync/editing, service browsing, booking creation/history/details, booking cancellation, location lookup, settings, and support UI.
 - Admin: review provider profiles and assign orders to providers.
+- Existing admins can grant admin access by email in the Admin app's Manage
+  admin users screen. The account must already exist; initial admin bootstrap
+  remains a one-time project-owner setup.
 - Provider: email OTP sign-in and account creation, profile application/re-submission, admin verification status, availability, assigned booking details, client phone calling, and accept/decline/on-the-way/start/complete actions.
 - Payment: UPI is a non-transactional demo; a payment provider and server-side confirmation are still needed.
 - Other future work: booking notifications/reminders, saved-address and medical-history backend storage with access controls, Hindi translations, and a complete support contact flow.

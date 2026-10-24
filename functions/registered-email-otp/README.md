@@ -64,6 +64,13 @@ an existing email it sends a code and returns `{ "registered": true, "userId":
 All other routes require an authenticated Appwrite session. Client, provider,
 and admin permissions are checked against each user's `user_profiles.role`.
 
+An existing admin can add another administrator from the Admin app's **Manage
+admin users** screen by entering an existing Appwrite account email. This uses
+the existing `user_profiles` table and requires no extra table. New admins must
+create their account first; the first admin still needs a one-time bootstrap by
+the project owner. The function uses its existing `users.read` scope to look up
+the account email, and only authenticated admins can grant the role.
+
 The provider app uses these routes:
 
 - `GET /provider/status` reads the signed-in account's role and provider profile.

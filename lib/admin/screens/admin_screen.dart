@@ -202,11 +202,14 @@ class AdminDashboard extends StatefulWidget {
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
-  int _selectedIndex = 2;
+  int _selectedIndex = 0;
   bool _showNotificationsPage = false;
+  bool _showAdminsPage = false;
   List<Map<String, dynamic>> _providers = [];
   List<Map<String, dynamic>> _orders = [];
   List<Map<String, dynamic>> _services = [];
+  List<Map<String, dynamic>> _adminUsers = [];
+  bool _adminsLoading = false;
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -305,6 +308,30 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 
+  Future<void> _loadAdminUsers() async {
+    setState(() => _adminsLoading = true);
+    try {
+      final rows = await AppwriteService.instance.listAdminUsers();
+      if (mounted) setState(() => _adminUsers = rows);
+    } on Object catch (error) {
+      if (mounted) _showMessage(_message(error));
+    } finally {
+      if (mounted) setState(() => _adminsLoading = false);
+    }
+  }
+
+  Future<void> _addAdminUser() async {
+    final email = await showDialog<String>(
+      context: context,
+      builder: (_) => const _GrantAdminDialog(),
+    );
+    if (email == null || email.trim().isEmpty) return;
+    await _runAction(() async {
+      await AppwriteService.instance.grantAdminAccess(email);
+    });
+    if (mounted) await _loadAdminUsers();
+  }
+
   Future<void> _verifyProvider(
     Map<String, dynamic> provider,
     String status,
@@ -380,7 +407,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
       final bookedTime = DateTime.tryParse(
         booking['scheduledAt']?.toString() ?? '',
       );
-      return bookedTime != null && bookedTime.isAtSameMomentAs(requestedTime);
+      return bookedTime != null &&
+          bookedTime.millisecondsSinceEpoch ~/ Duration.millisecondsPerMinute ==
+              requestedTime.millisecondsSinceEpoch ~/
+                  Duration.millisecondsPerMinute;
     });
   }
 
@@ -423,132 +453,467 @@ class _AdminDashboardState extends State<AdminDashboard> {
   int get _notificationCount =>
       _newBookingRequestCount + _newProviderRequestCount;
 
+  bool get _isDashboardHome =>
+      !_showNotificationsPage && !_showAdminsPage && _selectedIndex == 0;
+
+  void _returnToDashboard() {
+    setState(() {
+      _showNotificationsPage = false;
+      _showAdminsPage = false;
+      _selectedIndex = 0;
+    });
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      leading: _showNotificationsPage
-          ? IconButton(
-              tooltip: 'Back to dashboard',
-              onPressed: () => setState(() => _showNotificationsPage = false),
-              icon: const Icon(Icons.arrow_back_rounded),
-            )
-          : null,
-      title: Text(_showNotificationsPage ? 'Notifications' : 'Hi, $_adminName'),
-      actions: [
-        IconButton(
-          tooltip: 'Admin profile',
-          onPressed: _editAdminName,
-          icon: CircleAvatar(
-            radius: 15,
-            backgroundColor: const Color(0xFFDDF4EE),
-            child: Text(
-              _adminInitials,
-              style: const TextStyle(
-                color: appTeal,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
+  Widget build(BuildContext context) => PopScope<void>(
+    canPop: _isDashboardHome,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop) _returnToDashboard();
+    },
+    child: Scaffold(
+      appBar: AppBar(
+        leading: !_isDashboardHome
+            ? IconButton(
+                tooltip: 'Back to dashboard',
+                onPressed: _returnToDashboard,
+                icon: const Icon(Icons.arrow_back_rounded),
+              )
+            : null,
+        title: Text(
+          _showNotificationsPage
+              ? 'Notifications'
+              : _showAdminsPage
+              ? 'Admin users'
+              : 'Hi, $_adminName',
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Admin profile',
+            onPressed: _editAdminName,
+            icon: CircleAvatar(
+              radius: 15,
+              backgroundColor: const Color(0xFFDDF4EE),
+              child: Text(
+                _adminInitials,
+                style: const TextStyle(
+                  color: appTeal,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ),
-        ),
-        if (!_showNotificationsPage)
-          IconButton(
-            tooltip: 'Booking and provider notifications',
-            onPressed: () => setState(() => _showNotificationsPage = true),
-            icon: Badge(
-              isLabelVisible: _notificationCount > 0,
-              label: Text('$_notificationCount'),
-              child: const Icon(Icons.notifications_none_rounded),
+          if (!_showNotificationsPage)
+            IconButton(
+              tooltip: 'Booking and provider notifications',
+              onPressed: () => setState(() => _showNotificationsPage = true),
+              icon: Badge(
+                isLabelVisible: _notificationCount > 0,
+                label: Text('$_notificationCount'),
+                child: const Icon(Icons.notifications_none_rounded),
+              ),
             ),
+          if (!_showNotificationsPage && !_showAdminsPage)
+            IconButton(
+              tooltip: 'Manage admin users',
+              onPressed: () {
+                setState(() => _showAdminsPage = true);
+                _loadAdminUsers();
+              },
+              icon: const Icon(Icons.manage_accounts_outlined),
+            ),
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh_rounded),
           ),
-        IconButton(
-          tooltip: 'Refresh',
-          onPressed: _loading ? null : _load,
-          icon: const Icon(Icons.refresh_rounded),
+          IconButton(
+            onPressed: _signOut,
+            tooltip: 'Sign out',
+            icon: const Icon(Icons.logout),
+          ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? _ErrorPanel(message: _error!, onRetry: _load)
+          : Stack(
+              children: [
+                _showNotificationsPage
+                    ? _notificationsPage()
+                    : _showAdminsPage
+                    ? _adminUsersPage()
+                    : IndexedStack(
+                        index: _selectedIndex,
+                        children: [
+                          _dashboardPage(),
+                          _sectionPage(
+                            title: 'Bookings',
+                            subtitle:
+                                'Track requests and assigned care visits.',
+                            child: _orderList(),
+                          ),
+                          _sectionPage(
+                            title: 'Available providers',
+                            subtitle:
+                                'Approved providers ready to receive bookings.',
+                            child: _providerList(
+                              providers: _providers
+                                  .where(
+                                    (row) =>
+                                        row['verificationStatus'] ==
+                                            'verified' &&
+                                        row['isAvailable'] == true,
+                                  )
+                                  .toList(),
+                              emptyMessage: 'No approved providers are currently available.',
+                            ),
+                          ),
+                          _sectionPage(
+                            title: 'Provider applications',
+                            subtitle: 'Review and approve new care providers.',
+                            child: _providerList(
+                              providers: _providers
+                                  .where(
+                                    (row) =>
+                                        row['verificationStatus'] == 'pending',
+                                  )
+                                  .toList(),
+                              emptyMessage:
+                                  'No provider applications need review.',
+                            ),
+                          ),
+                        ],
+                      ),
+                if (_busy) const LinearProgressIndicator(),
+              ],
+            ),
+      bottomNavigationBar: _showNotificationsPage || _showAdminsPage
+          ? null
+          : NavigationBar(
+              selectedIndex: _selectedIndex,
+              onDestinationSelected: (index) =>
+                  setState(() => _selectedIndex = index),
+              backgroundColor: Colors.white,
+              indicatorColor: const Color(0xFFDDF4EE),
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.dashboard_outlined),
+                  selectedIcon: Icon(Icons.dashboard_rounded),
+                  label: 'Home',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.calendar_month_outlined),
+                  selectedIcon: Icon(Icons.calendar_month_rounded),
+                  label: 'Bookings',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.verified_user_outlined),
+                  selectedIcon: Icon(Icons.verified_user_rounded),
+                  label: 'Available',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.person_add_alt_1_outlined),
+                  selectedIcon: Icon(Icons.person_add_alt_1_rounded),
+                  label: 'Applications',
+                ),
+              ],
+            ),
+    ),
+  );
+
+  Widget _dashboardPage() {
+    final pendingOrders = _orders
+        .where((row) => row['status'] == 'pending_assignment')
+        .toList();
+    final activeOrders = _orders
+        .where(
+          (row) =>
+              ['assigned', 'accepted', 'in_progress'].contains(row['status']),
+        )
+        .length;
+    final completedOrders = _orders
+        .where((row) => row['status'] == 'completed')
+        .length;
+    final availableProviders = _providers
+        .where(
+          (row) =>
+              row['verificationStatus'] == 'verified' &&
+              row['isAvailable'] == true,
+        )
+        .length;
+    final pendingProviders = _providers
+        .where((row) => row['verificationStatus'] == 'pending')
+        .toList();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [appTeal, Color(0xFF08766D)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Good to see you, $_adminName',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 21,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      _notificationCount == 0
+                          ? 'Everything is up to date.'
+                          : '$_notificationCount items need your attention today.',
+                      style: const TextStyle(color: Color(0xFFD9F2EC)),
+                    ),
+                    const SizedBox(height: 14),
+                    OutlinedButton.icon(
+                      onPressed: () =>
+                          setState(() => _showNotificationsPage = true),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Color(0x99FFFFFF)),
+                      ),
+                      icon: const Icon(
+                        Icons.notifications_active_outlined,
+                        size: 18,
+                      ),
+                      label: const Text('Review notifications'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                width: 54,
+                height: 54,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: .16),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Icon(
+                  Icons.space_dashboard_rounded,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ),
+            ],
+          ),
         ),
-        IconButton(
-          onPressed: _signOut,
-          tooltip: 'Sign out',
-          icon: const Icon(Icons.logout),
+        const SizedBox(height: 22),
+        _dashboardHeading('At a glance', 'Your service activity'),
+        const SizedBox(height: 10),
+        LayoutBuilder(
+          builder: (context, constraints) => GridView.count(
+            crossAxisCount: constraints.maxWidth >= 720
+                ? 4
+                : constraints.maxWidth >= 480
+                ? 3
+                : 2,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: constraints.maxWidth < 350 ? 1.25 : 1.48,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              _DashboardMetric(
+                label: 'All bookings',
+                value: '${_orders.length}',
+                icon: Icons.calendar_month_rounded,
+              ),
+              _DashboardMetric(
+                label: 'To assign',
+                value: '${pendingOrders.length}',
+                icon: Icons.assignment_late_outlined,
+                accent: true,
+              ),
+              _DashboardMetric(
+                label: 'Active visits',
+                value: '$activeOrders',
+                icon: Icons.health_and_safety_outlined,
+              ),
+              _DashboardMetric(
+                label: 'Completed',
+                value: '$completedOrders',
+                icon: Icons.task_alt_rounded,
+              ),
+              _DashboardMetric(
+                label: 'Available team',
+                value: '$availableProviders',
+                icon: Icons.verified_user_outlined,
+              ),
+              _DashboardMetric(
+                label: 'Applications',
+                value: '${pendingProviders.length}',
+                icon: Icons.person_add_alt_1_rounded,
+                accent: true,
+              ),
+              _DashboardMetric(
+                label: 'Care services',
+                value: '${_services.length}',
+                icon: Icons.medical_services_outlined,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 22),
+        _dashboardSection(
+          title: 'New booking requests',
+          count: pendingOrders.length,
+          actionLabel: 'View all',
+          onAction: () => setState(() => _selectedIndex = 1),
+          children: pendingOrders.isEmpty
+              ? [_dashboardEmpty('No bookings are waiting for assignment.')]
+              : pendingOrders.take(3).map((order) {
+                  final clientName = (order['clientName'] as String? ?? '')
+                      .trim();
+                  return _dashboardPreview(
+                    icon: Icons.event_note_rounded,
+                    title: clientName.isEmpty ? 'New booking' : clientName,
+                    subtitle:
+                        "${order['serviceName'] ?? 'Care service'}  ?  ${order['bookingId'] ?? 'Booking'}",
+                    onTap: () => setState(() => _selectedIndex = 1),
+                  );
+                }).toList(),
+        ),
+        const SizedBox(height: 14),
+        _dashboardSection(
+          title: 'Provider applications',
+          count: pendingProviders.length,
+          actionLabel: 'Review',
+          onAction: () => setState(() => _selectedIndex = 3),
+          children: pendingProviders.isEmpty
+              ? [_dashboardEmpty('No provider applications need review.')]
+              : pendingProviders.take(3).map((provider) {
+                  final name = (provider['name'] as String? ?? '').trim();
+                  final org = (provider['businessName'] as String? ?? '')
+                      .trim();
+                  return _dashboardPreview(
+                    icon: Icons.person_add_alt_1_rounded,
+                    title: name.isEmpty ? 'Provider' : name,
+                    subtitle: org.isEmpty ? 'Awaiting approval' : org,
+                    onTap: () => setState(() => _selectedIndex = 3),
+                  );
+                }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _dashboardHeading(String title, String subtitle) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        title,
+        style: Theme.of(context).textTheme.titleLarge
+            ?.copyWith(fontWeight: FontWeight.w800),
+      ),
+      const SizedBox(height: 3),
+      Text(subtitle, style: const TextStyle(color: appMuted)),
+    ],
+  );
+
+  Widget _dashboardSection({
+    required String title,
+    required int count,
+    required String actionLabel,
+    required VoidCallback onAction,
+    required List<Widget> children,
+  }) => Card(
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 8, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE6F5F1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '$count',
+                  style: const TextStyle(
+                    color: appTeal,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              TextButton(onPressed: onAction, child: Text(actionLabel)),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        ...children,
+      ],
+    ),
+  );
+
+  Widget _dashboardPreview({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) => ListTile(
+    onTap: onTap,
+    leading: Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF6F3),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Icon(icon, color: appTeal, size: 21),
+    ),
+    title: Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontWeight: FontWeight.w700),
+    ),
+    subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+    trailing: const Icon(Icons.chevron_right_rounded, color: appMuted),
+  );
+
+  Widget _dashboardEmpty(String message) => Padding(
+    padding: const EdgeInsets.all(18),
+    child: Row(
+      children: [
+        const Icon(Icons.check_circle_outline_rounded, color: appTeal),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(message, style: const TextStyle(color: appMuted)),
         ),
       ],
     ),
-    body: _loading
-        ? const Center(child: CircularProgressIndicator())
-        : _error != null
-        ? _ErrorPanel(message: _error!, onRetry: _load)
-        : Stack(
-            children: [
-              _showNotificationsPage
-                  ? _notificationsPage()
-                  : IndexedStack(
-                      index: _selectedIndex,
-                      children: [
-                        _sectionPage(
-                          title: 'Bookings',
-                          subtitle: 'Track requests and assigned care visits.',
-                          child: _orderList(),
-                        ),
-                        _sectionPage(
-                          title: 'Available providers',
-                          subtitle:
-                              'Approved providers ready to receive bookings.',
-                          child: _providerList(
-                            providers: _providers
-                                .where(
-                                  (row) =>
-                                      row['verificationStatus'] == 'verified' &&
-                                      row['isAvailable'] == true,
-                                )
-                                .toList(),
-                            emptyMessage: 'No approved providers are currently available.',
-                          ),
-                        ),
-                        _sectionPage(
-                          title: 'Provider applications',
-                          subtitle: 'Review and approve new care providers.',
-                          child: _providerList(
-                            providers: _providers
-                                .where(
-                                  (row) =>
-                                      row['verificationStatus'] == 'pending',
-                                )
-                                .toList(),
-                            emptyMessage:
-                                'No provider applications need review.',
-                          ),
-                        ),
-                      ],
-                    ),
-              if (_busy) const LinearProgressIndicator(),
-            ],
-          ),
-    bottomNavigationBar: _showNotificationsPage
-        ? null
-        : NavigationBar(
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: (index) =>
-                setState(() => _selectedIndex = index),
-            backgroundColor: Colors.white,
-            indicatorColor: const Color(0xFFDDF4EE),
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.calendar_month_outlined),
-                selectedIcon: Icon(Icons.calendar_month_rounded),
-                label: 'Bookings',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.verified_user_outlined),
-                selectedIcon: Icon(Icons.verified_user_rounded),
-                label: 'Available',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.person_add_alt_1_outlined),
-                selectedIcon: Icon(Icons.person_add_alt_1_rounded),
-                label: 'Applications',
-              ),
-            ],
-          ),
   );
 
   Widget _sectionPage({
@@ -595,6 +960,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
           final provider = rows[index];
           final status =
               provider['verificationStatus']?.toString() ?? 'pending';
+          final providerName = (provider['name'] as String? ?? '').trim();
+          final organizationName = (provider['businessName'] as String? ?? '')
+              .trim();
+          final phone = (provider['phone'] as String? ?? '').trim();
           final serviceIds = provider['serviceIds'] is List
               ? (provider['serviceIds'] as List).map(_serviceName).join(', ')
               : '';
@@ -612,9 +981,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     children: [
                       Expanded(
                         child: Text(
-                          (provider['name'] as String? ?? '').trim().isNotEmpty
-                              ? (provider['name'] as String).trim()
-                              : 'Provider',
+                          providerName.isNotEmpty ? providerName : 'Provider',
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 17,
@@ -625,6 +992,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     ],
                   ),
                   const SizedBox(height: 8),
+                  if (organizationName.isNotEmpty)
+                    Text('Organization: $organizationName'),
+                  if (phone.isNotEmpty) Text('Phone: $phone'),
                   if (serviceIds.isNotEmpty) Text('Services: $serviceIds'),
                   if (areas.isNotEmpty) Text('Service areas: $areas'),
                   if (status == 'pending') ...[
@@ -704,6 +1074,66 @@ class _AdminDashboardState extends State<AdminDashboard> {
         ),
       ],
     ),
+  );
+
+  Widget _adminUsersPage() => Column(
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+        child: Card(
+          child: ListTile(
+            leading: const Icon(Icons.info_outline, color: appTeal),
+            title: const Text('Grant admin access by email'),
+            subtitle: const Text(
+              'The person must already have an account. Only an existing admin can grant this role.',
+            ),
+          ),
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _busy ? null : _addAdminUser,
+            icon: const Icon(Icons.person_add_alt_1),
+            label: const Text('Add administrator'),
+          ),
+        ),
+      ),
+      Expanded(
+        child: _adminsLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _adminUsers.isEmpty
+            ? const _EmptyPanel(message: 'No administrators found.')
+            : RefreshIndicator(
+                onRefresh: _loadAdminUsers,
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _adminUsers.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final admin = _adminUsers[index];
+                    final name = admin['name']?.toString().trim() ?? '';
+                    final email = admin['email']?.toString().trim() ?? '';
+                    return Card(
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: const Color(0xFFDDF4EE),
+                          child: Text(
+                            name.isEmpty ? 'A' : name[0].toUpperCase(),
+                            style: const TextStyle(color: appTeal),
+                          ),
+                        ),
+                        title: Text(name.isEmpty ? 'Administrator' : name),
+                        subtitle: Text(email.isEmpty ? 'Account' : email),
+                      ),
+                    );
+                  },
+                ),
+              ),
+      ),
+    ],
   );
 
   Widget _orderList({
@@ -786,6 +1216,47 @@ class _AdminDashboardState extends State<AdminDashboard> {
       ),
     );
   }
+}
+
+class _GrantAdminDialog extends StatefulWidget {
+  const _GrantAdminDialog();
+
+  @override
+  State<_GrantAdminDialog> createState() => _GrantAdminDialogState();
+}
+
+class _GrantAdminDialogState extends State<_GrantAdminDialog> {
+  final _emailController = TextEditingController();
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Add administrator'),
+    content: TextField(
+      controller: _emailController,
+      autofocus: true,
+      keyboardType: TextInputType.emailAddress,
+      textInputAction: TextInputAction.done,
+      decoration: const InputDecoration(labelText: 'Account email'),
+      onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () =>
+            Navigator.of(context).pop(_emailController.text.trim()),
+        child: const Text('Grant access'),
+      ),
+    ],
+  );
 }
 
 class _AdminNameDialog extends StatefulWidget {
@@ -991,6 +1462,60 @@ class _StatusPill extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DashboardMetric extends StatelessWidget {
+  const _DashboardMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.accent = false,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    margin: EdgeInsets.zero,
+    child: Padding(
+      padding: const EdgeInsets.all(13),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: accent ? const Color(0xFFE1F4EF) : const Color(0xFFF0F3F3),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, color: accent ? appTeal : appInk, size: 19),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: Theme.of(context).textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w800, height: 1),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: appMuted, fontSize: 12),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _EmptyPanel extends StatelessWidget {

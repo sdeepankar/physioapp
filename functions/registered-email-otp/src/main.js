@@ -35,6 +35,9 @@ async function handleCareApi({ req, res, error, path }) {
     const tables = new TablesDB(
       new Client().setEndpoint(endpoint).setProject(projectId).setKey(functionKey),
     );
+    const adminUsers = new Users(
+      new Client().setEndpoint(endpoint).setProject(projectId).setKey(functionKey),
+    );
     const actorId = user.$id;
     const profile = await findProfile(tables, actorId);
     const role = profile?.role ?? null;
@@ -212,7 +215,7 @@ async function handleCareApi({ req, res, error, path }) {
 
     if (path.startsWith('/admin/')) {
       if (role !== 'admin') return res.json({ message: 'Admin access is required.' }, 403);
-      return adminRoute(tables, actorId, method, path, body, res);
+      return adminRoute(tables, adminUsers, actorId, method, path, body, res);
     }
 
     return res.json({ message: 'Unknown backend route.' }, 404);
@@ -470,10 +473,16 @@ async function chooseProvider(tables, order, excludedProviderId = '') {
   ]);
   const candidates = providers.filter((provider) => provider.userId !== excludedProviderId && provider.verificationStatus === 'verified' && provider.isAvailable === true &&
     Array.isArray(provider.serviceIds) && provider.serviceIds.includes(order.serviceId) &&
-    areaMatches(provider.serviceAreas, order) &&
-    !hasScheduleConflictInOrders(orders, provider.userId, order));
-  candidates.sort((a, b) => activeOrderCount(orders, a.userId) - activeOrderCount(orders, b.userId));
-  return candidates[0] ?? null;
+    areaMatches(provider.serviceAreas, order));
+  const conflictChecks = await Promise.all(candidates.map(async (provider) => ({
+    provider,
+    busy: await hasScheduleConflict(tables, provider.userId, order),
+  })));
+  const eligible = conflictChecks
+    .filter(({ busy }) => !busy)
+    .map(({ provider }) => provider);
+  eligible.sort((a, b) => activeOrderCount(orders, a.userId) - activeOrderCount(orders, b.userId));
+  return eligible[0] ?? null;
 }
 
 function areaMatches(areas, order) {
@@ -492,21 +501,59 @@ function activeOrderCount(orders, providerId) {
 function hasScheduleConflictInOrders(orders, providerId, requestedOrder) {
   const requestedTime = Date.parse(requestedOrder.scheduledAt);
   if (!Number.isFinite(requestedTime)) return false;
+  const requestedMinute = Math.floor(requestedTime / 60000);
   const activeStatuses = ['assigned', 'accepted', 'out_for_service', 'in_progress'];
   return orders.some((order) => order.$id !== requestedOrder.$id &&
     order.assignedProviderId === providerId && activeStatuses.includes(order.status) &&
-    Date.parse(order.scheduledAt) === requestedTime);
+    Math.floor(Date.parse(order.scheduledAt) / 60000) === requestedMinute);
 }
 
 async function hasScheduleConflict(tables, providerId, requestedOrder) {
+  const requestedTime = Date.parse(requestedOrder.scheduledAt);
+  if (!Number.isFinite(requestedTime)) return false;
+  const minuteStart = Math.floor(requestedTime / 60000) * 60000;
+  const minuteEnd = minuteStart + 60000;
   const bookings = await listRows(tables, 'orders', [
     Query.equal('assignedProviderId', providerId),
+    Query.greaterThanEqual('scheduledAt', new Date(minuteStart).toISOString()),
+    Query.lessThan('scheduledAt', new Date(minuteEnd).toISOString()),
     Query.limit(100),
   ]);
   return hasScheduleConflictInOrders(bookings, providerId, requestedOrder);
 }
 
-async function adminRoute(tables, actorId, method, path, body, res) {
+async function adminRoute(tables, users, actorId, method, path, body, res) {
+  if (method === 'GET' && path === '/admin/admins') {
+    const profiles = (await listRows(tables, 'profiles'))
+      .filter((row) => row.role === 'admin');
+    const rows = await Promise.all(profiles.map(async (profile) => {
+      try {
+        const user = await users.get({ userId: profile.userId });
+        return { userId: profile.userId, name: profile.name ?? user.name ?? '', email: user.email ?? '' };
+      } catch (_) {
+        return { userId: profile.userId, name: profile.name ?? '', email: '' };
+      }
+    }));
+    return res.json({ rows });
+  }
+
+  if (method === 'POST' && path === '/admin/admins') {
+    const email = cleanText(body.email, 254).toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return res.json({ message: 'Enter a valid account email.' }, 400);
+    }
+    const result = await users.list({ queries: [Query.equal('email', email), Query.limit(1)], total: false });
+    const user = result.users.find((item) => item.email.toLowerCase() === email);
+    if (!user) {
+      return res.json({ message: 'No account found for this email. Ask them to create an account first.' }, 404);
+    }
+    const profile = await findProfile(tables, user.$id);
+    const row = profile
+      ? await tables.updateRow({ databaseId, tableId: tableIds.profiles, rowId: profile.$id, data: { role: 'admin' } })
+      : await tables.createRow({ databaseId, tableId: tableIds.profiles, rowId: ID.unique(), data: { userId: user.$id, name: user.name ?? '', role: 'admin' } });
+    return res.json({ row: { userId: user.$id, name: row.name ?? user.name ?? '', email: user.email } });
+  }
+
   if (method === 'GET' && path === '/admin/profile') {
     const profile = await findProfile(tables, actorId);
     return res.json({ row: profile ? { name: profile.name ?? '' } : null });
@@ -539,7 +586,11 @@ async function adminRoute(tables, actorId, method, path, body, res) {
     const providers = await listRows(tables, 'providers', [Query.limit(100)]);
     const rows = await Promise.all(providers.map(async (provider) => {
       const profile = await findProfile(tables, provider.userId);
-      return { ...provider, name: profile?.name ?? '' };
+      return {
+        ...provider,
+        name: profile?.name ?? '',
+        phone: profile?.phone ?? '',
+      };
     }));
     return res.json({ rows });
   }

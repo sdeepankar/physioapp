@@ -32,6 +32,12 @@ class AppwriteService {
   Future<List<Map<String, dynamic>>> listAdminServices() =>
       _listAdminRows('/admin/services', method: enums.ExecutionMethod.gET);
 
+  Future<List<Map<String, dynamic>>> listAdminUsers() =>
+      _listAdminRows('/admin/admins', method: enums.ExecutionMethod.gET);
+
+  Future<Map<String, dynamic>> grantAdminAccess(String email) async =>
+      callApi('/admin/admins', {'email': email.trim()});
+
   Future<String?> getAdminDisplayName() async {
     final response = await callApi(
       '/admin/profile',
